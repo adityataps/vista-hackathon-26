@@ -43,6 +43,13 @@ resource "aws_security_group" "backend_task" {
   }
 }
 
+resource "aws_security_group" "lambda_ingest" {
+  name   = "${var.app_name}-lambda-ingest"
+  vpc_id = data.aws_vpc.default.id
+  # Cross-VPC rules (to/from rds SG) are added as aws_security_group_rule
+  # resources in rds.tf to avoid circular dependency.
+}
+
 resource "aws_security_group" "frontend_task" {
   name   = "${var.app_name}-frontend-task"
   vpc_id = data.aws_vpc.default.id

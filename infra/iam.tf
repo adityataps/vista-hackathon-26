@@ -132,7 +132,12 @@ data "aws_iam_policy_document" "github_actions" {
     resources = [
       aws_ecr_repository.backend.arn,
       aws_ecr_repository.frontend.arn,
+      aws_ecr_repository.ingest.arn,
     ]
+  }
+  statement {
+    actions   = ["lambda:UpdateFunctionCode"]
+    resources = [aws_lambda_function.payment_ingest.arn]
   }
   statement {
     actions   = ["ecs:RegisterTaskDefinition", "ecs:DescribeTaskDefinition"]

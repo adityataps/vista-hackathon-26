@@ -25,3 +25,15 @@ output "github_actions_role_arn" {
 output "ecs_cluster_name" {
   value = aws_ecs_cluster.main.name
 }
+
+output "ecr_ingest_url" {
+  value = aws_ecr_repository.ingest.repository_url
+}
+
+output "rds_endpoint" {
+  value = aws_db_instance.main.endpoint
+}
+
+output "sqs_payment_ingest_url" {
+  value = aws_sqs_queue.payment_ingest.url
+}

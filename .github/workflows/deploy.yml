@@ -8,11 +8,13 @@ env:
   AWS_REGION: us-west-2
   ECR_BACKEND_REPO: payinvestigator-backend
   ECR_FRONTEND_REPO: payinvestigator-frontend
+  ECR_INGEST_REPO: payinvestigator-ingest
   ECS_CLUSTER: payinvestigator
   BACKEND_SERVICE: payinvestigator-backend
   FRONTEND_SERVICE: payinvestigator-frontend
   BACKEND_TASK_FAMILY: payinvestigator-backend
   FRONTEND_TASK_FAMILY: payinvestigator-frontend
+  LAMBDA_INGEST_NAME: payinvestigator-payment-xml-ingest
 
 permissions:
   id-token: write
@@ -35,6 +37,29 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push ingest Lambda image
+        id: build-ingest
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f jobs/pacs008-generator/Dockerfile.lambda \
+                       -t $ECR_REGISTRY/$ECR_INGEST_REPO:$IMAGE_TAG \
+                       -t $ECR_REGISTRY/$ECR_INGEST_REPO:latest \
+                       jobs/pacs008-generator
+          docker push $ECR_REGISTRY/$ECR_INGEST_REPO:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_INGEST_REPO:latest
+          echo "image=$ECR_REGISTRY/$ECR_INGEST_REPO:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Deploy ingest Lambda
+        env:
+          IMAGE: ${{ steps.build-ingest.outputs.image }}
+        run: |
+          aws lambda update-function-code \
+            --function-name $LAMBDA_INGEST_NAME \
+            --image-uri $IMAGE \
+            --region $AWS_REGION
 
       - name: Build and push backend image
         id: build-backend
