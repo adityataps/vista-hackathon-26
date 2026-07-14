@@ -112,14 +112,118 @@ Payment Lifecycle Event Stream (continuous)
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| AI / LLM | Claude claude-sonnet-4-6 (Anthropic API direct or Bedrock) | Best tool use + reasoning |
-| Agent framework | Python + `anthropic` SDK tool use (no heavy framework) | Fastest to build and debug in 24h |
-| Tool connectivity | MCP or direct function calls | MCP if time allows, otherwise native tool use |
-| Backend | FastAPI (Python) | Fast to stand up, easy to demo |
-| Mock data store | JSON files + in-memory / SQLite | No infra overhead |
-| Frontend | Simple React or plain HTML/JS | PM/UX can own this |
-| Infra | AWS (EC2 or Lambda) or just localhost for demo | Localhost is fine for live demo |
-| Repo | GitHub | Judges review commit history |
+| AI / LLM | Claude claude-sonnet-4-6 via AWS Bedrock | Best tool use + reasoning; keeps everything in AWS |
+| Agent framework | **LangGraph** (Python) | Graph-based multi-agent orchestration, built-in state management, parallel node execution |
+| Tool connectivity | LangGraph tool nodes + LangChain tools | Native integration with LangGraph; MCP wrapper optional on top |
+| Backend | FastAPI (Python) | Fast to stand up, clean REST endpoints for frontend |
+| Data store | SQLite (seeded from S3 on startup) | Simple for mock data; S3 as source of truth; no EFS complexity |
+| Frontend | React + Recharts | Dashboard + investigation UI |
+| Containerisation | Docker | Single image for backend; deployed via Fargate |
+| CI/CD | GitHub Actions → ECR → ECS Fargate | Push-to-deploy; Docker build + push + task definition update |
+| Cloud | AWS (ECS Fargate, ECR, ALB, S3, Bedrock, ACM, Route 53) | Full AWS stack |
+| DNS / Hosting | Subdomain of your domain → ALB | HTTPS via ACM; Route 53 or registrar CNAME |
+| Repo | GitHub | Judges review commit history; source of CI/CD triggers |
+
+---
+
+## Infrastructure & Deployment
+
+### AWS Architecture
+
+```
+                        GitHub
+                           │
+                    git push / PR merge
+                           │
+                    GitHub Actions
+                    ┌──────┴───────┐
+                    │  CI/CD       │
+                    │  1. Build    │
+                    │  2. Push ECR │
+                    │  3. Deploy   │
+                    └──────┬───────┘
+                           │
+          ┌────────────────▼────────────────┐
+          │           AWS                   │
+          │                                 │
+          │  ECR ──── ECS Fargate           │
+          │  (image)   (container)          │
+          │               │                 │
+          │            FastAPI              │
+          │            + LangGraph          │
+          │               │                 │
+          │        ┌──────┴───────┐         │
+          │        │              │         │
+          │      SQLite         Bedrock     │
+          │   (seeded from    (Claude       │
+          │      S3 on         claude-sonnet-4-6)  │
+          │    startup)                     │
+          │                                 │
+          │  ALB (Application Load Balancer)│
+          │        │                        │
+          └────────┼────────────────────────┘
+                   │
+            subdomain.yourdomain.com
+            (ACM cert, HTTPS)
+                   │
+              React Frontend
+              (served via ALB
+               or S3 static site)
+```
+
+### GitHub Actions Pipeline
+
+```yaml
+# .github/workflows/deploy.yml — on push to main
+steps:
+  1. Checkout code
+  2. Configure AWS credentials (OIDC — no long-lived keys)
+  3. Build Docker image
+  4. Push to ECR
+  5. Render new ECS task definition (new image tag)
+  6. Deploy to ECS Fargate service (rolling update)
+  7. Wait for service stability
+```
+
+### Docker Image Structure
+
+```dockerfile
+# Single image — FastAPI + LangGraph backend
+FROM python:3.12-slim
+COPY requirements.txt .
+RUN pip install fastapi uvicorn langgraph langchain-aws boto3 ...
+COPY . .
+# On startup: pull mock data from S3, seed SQLite, start uvicorn
+CMD ["sh", "-c", "python seed_db.py && uvicorn main:app --host 0.0.0.0 --port 8080"]
+```
+
+### Data Strategy — SQLite + S3
+
+- **S3 bucket** holds master mock data JSON files (transactions, error catalog, BIC directory, sanctions list, lifecycle events, SLA benchmarks)
+- **On container startup**, `seed_db.py` downloads from S3, inserts into a local SQLite DB
+- **SQLite** is in-memory or on the container's ephemeral disk — fine for a demo with fixed mock data
+- **No persistence needed** — mock data is static; S3 is the source of truth, not the DB
+
+> If you want persistence across restarts (e.g., to save investigation history), mount an **EFS volume** to the Fargate task. Add ~30 min of setup time.
+
+### Subdomain Setup
+
+1. Purchase ACM certificate for `hackathon.yourdomain.com` (DNS validation via Route 53 or registrar)
+2. Create ALB, attach ACM cert, configure HTTPS listener → forward to Fargate target group
+3. Add CNAME record: `hackathon.yourdomain.com` → ALB DNS name
+4. Frontend: either serve React from the same FastAPI container (static files) or deploy to S3 + CloudFront
+
+### Key AWS Services Checklist
+
+- [ ] ECR repository created
+- [ ] ECS cluster + Fargate service defined
+- [ ] ALB + target group + HTTPS listener
+- [ ] S3 bucket for mock data (upload JSON files before hackathon starts)
+- [ ] Bedrock model access confirmed (Claude claude-sonnet-4-6)
+- [ ] IAM role for Fargate task (Bedrock invoke + S3 read permissions)
+- [ ] IAM OIDC role for GitHub Actions (ECR push + ECS deploy permissions)
+- [ ] ACM certificate issued and validated
+- [ ] Route 53 / DNS CNAME record set
 
 ---
 
@@ -129,7 +233,7 @@ Payment Lifecycle Event Stream (continuous)
 |---|---|---|
 | Backend / AI / Infra | Aditya | Agent logic, orchestration, FastAPI, deployment |
 | Product / Demo Script | PM (Finastra veteran) | Exception scenario narrative, slide deck, demo flow |
-| Frontend | TBD teammate | Chat/investigation UI, exception queue view |
+| Frontend | TBD teammate | Dashboard, investigation UI, exception queue, alert feed |
 | Mock Data | Any | Generate realistic payment JSON, SWIFT message samples |
 | Responsible AI Assessment | PM + Aditya | Human-in-the-loop design, audit trail, bias considerations |
 
@@ -145,6 +249,13 @@ Payment Lifecycle Event Stream (continuous)
 - **Bank/BIC directory** — `bic`, `bank_name`, `country`, `correspondent_banks[]`
 - **Sanctions list (simplified OFAC SDN)** — `entity_name`, `aliases[]`, `country`, `list_type`
 - **Resolution history** — past cases + what fixed them (agent memory context)
+
+### Dashboard metrics dataset
+- **Transaction volume time series** — `timestamp` (hourly), `rail`, `corridor`, `count`, `success_count`, `exception_count`
+- **Latency percentiles** — `corridor`, `rail`, `p50_minutes`, `p75_minutes`, `p95_minutes`, `p99_minutes`, `period` (current vs. last_7d benchmark)
+- **Exception breakdown** — `exception_type`, `count`, `avg_resolution_time_minutes`, `auto_resolved_count`, `escalated_count`
+- **Correspondent health** — `bic`, `bank_name`, `status` (normal/degraded/outage), `avg_processing_minutes`, `payments_delayed_count`
+- **AI performance stats** — `total_investigations`, `auto_resolved`, `escalated_to_human`, `recommendation_acceptance_rate`, `avg_investigation_seconds`
 
 ### Track 2 datasets (Bottleneck Detection)
 - **Payment lifecycle events** — `tx_id`, `step` (submitted / validated / sent_to_correspondent / processing / settled), `step_timestamp`, `expected_duration_minutes`, `actual_duration_minutes`
@@ -169,10 +280,74 @@ Payment Lifecycle Event Stream (continuous)
 | **Hour 4–7** | Track 1: Compliance Agent + Technical Diagnosis Agent + Resolution Agent |
 | **Hour 7–10** | Track 2: Monitor Agent + Bottleneck Analysis Agent |
 | **Hour 10–13** | Track 2: Pattern Agent + Alert Agent, wire both tracks together |
-| **Hour 13–17** | FastAPI endpoints, frontend wired up, demo scenarios 1 + 2 working |
+| **Hour 13–17** | FastAPI metrics endpoints, dashboard View 1 + View 2 wired up, demo scenarios 1 + 2 working |
 | **Hour 17–20** | Demo scenarios 3 + 4 (bottleneck track), polish all agent outputs |
 | **Hour 20–22** | Full dry-run of all 4 scenarios, fix rough edges |
 | **Hour 22–24** | Slides, Responsible AI Assessment, submission |
+
+---
+
+## Frontend / Dashboard Layout
+
+Three views, navigable by tab or sidebar.
+
+### View 1 — Operations Dashboard (default landing page)
+The "before" view — shows the scale of the problem and system health at a glance.
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  KPI Row                                                       │
+│  [In-Flight: 142]  [Exceptions: 23]  [At-Risk: 4]  [MTTR: 38m→2s] │
+├──────────────────────────┬─────────────────────────────────────┤
+│  Transaction Volume      │  Latency Percentiles (by corridor)  │
+│  (hourly bar chart,      │  p50 / p95 / p99 line chart,        │
+│   by rail)               │  current vs. 7-day benchmark        │
+├──────────────────────────┼─────────────────────────────────────┤
+│  Exception Breakdown     │  Correspondent Health Table         │
+│  (bar chart by type:     │  BIC | Bank | Status | Avg Time     │
+│   IBAN / duplicate /     │  DEUTDEDB | Deutsche | ⚠ Degraded  │
+│   sanctions / FX)        │  CHASUS33  | JPMorgan | ✓ Normal   │
+└──────────────────────────┴─────────────────────────────────────┘
+```
+
+### View 2 — Exception Investigation Queue
+Live feed of exceptions. Click any row to trigger the agent investigation and watch reasoning stream in real time.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Exception Queue                              [▶ Run All AI] │
+├──────────┬──────────────┬──────────┬──────────┬────────────┤
+│ TX ID    │ Type         │ Amount   │ Status   │ Action     │
+├──────────┼──────────────┼──────────┼──────────┼────────────┤
+│ TX-00142 │ Bad IBAN     │ €42,000  │ Pending  │ [Investigate] │
+│ TX-00138 │ Sanctions    │ $198,500 │ Pending  │ [Investigate] │
+│ TX-00121 │ Duplicate    │ £7,200   │ Resolved │ [View] │
+└──────────┴──────────────┴──────────┴──────────┴────────────┘
+
+[Investigation panel — streams agent reasoning + tool calls]
+  > Intake Agent: Classified as IBAN_CHECKSUM_ERROR
+  > Investigation Agent: Pulled payment record TX-00142...
+  > Technical Diagnosis: IBAN GB29NWBK60161331926819 fails mod-97 check
+  > Resolution Agent: Suggested correction GB29NWBK60161331926820
+  > ⏳ Awaiting human approval...          [Approve] [Reject]
+```
+
+### View 3 — Bottleneck Monitor
+In-flight payment health, live alerts, and correspondent degradation heatmap.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ 🔴 ACTIVE ALERT: 4 payments delayed at DEUTDEDB (Deutsche)   │
+│ Avg delay: +4.2h over SLA · Systemic pattern detected        │
+│ Recommended: Escalate to correspondent ops team   [Escalate] │
+├──────────────────────┬───────────────────────────────────────┤
+│ In-Flight Payments   │  Corridor Latency Heatmap             │
+│ (list w/ risk level) │  (rows: corridor, cols: step,         │
+│ 🔴 TX-00155 At-Risk  │   colour: on-track/at-risk/breached)  │
+│ 🟡 TX-00148 Watch    │                                        │
+│ 🟢 TX-00144 On-Track │                                        │
+└──────────────────────┴───────────────────────────────────────┘
+```
 
 ---
 
@@ -198,6 +373,117 @@ Payment Lifecycle Event Stream (continuous)
 - **Audit trail:** Full log of agent reasoning steps, tool calls, and data accessed — satisfies regulatory requirements.
 - **Bias / false positives:** Compliance agent is designed to flag uncertainty and escalate rather than auto-reject. Reduces, not replaces, human judgment.
 - **Data privacy:** No real PII in demo. In production, would operate within bank's existing data governance perimeter.
+
+---
+
+## Agent Tools & Capabilities
+
+> Implementation: define these as Python functions, register as tool definitions in the Anthropic SDK. Wrap in a FastMCP server if time allows — it makes the MCP story legible to judges and matches the FAQ's emphasis on the protocol.
+
+### Track 1 — Exception Resolution
+
+#### Intake Agent
+| Tool | Description |
+|---|---|
+| `get_payment_record(tx_id)` | Retrieves full payment transaction from mock store |
+| `parse_payment_message(raw_message)` | Extracts structured fields from MT103 / pacs.008 |
+| `classify_exception(error_code)` | Maps error code to exception type, severity, and routing decision |
+
+#### Investigation Agent
+| Tool | Description |
+|---|---|
+| `get_payment_record(tx_id)` | Full transaction details |
+| `get_swift_message(tx_id)` | Raw SWIFT message associated with the payment |
+| `lookup_bic(bic)` | Bank name, country, correspondent relationships |
+| `validate_iban(iban)` | Checksum validation + format check |
+| `get_error_details(error_code)` | Detailed error description and standard remediation steps |
+| `get_account_status(account_id)` | Account standing, restrictions, recent activity |
+
+#### Compliance Agent
+| Tool | Description |
+|---|---|
+| `screen_entity(name, country)` | Fuzzy match against sanctions list, returns match score + matched entries |
+| `get_sanctions_entry(entity_name)` | Full SDN record for a matched entity |
+| `search_adverse_media(entity_name)` | Mock news/adverse media lookup for the entity |
+| `get_aml_flags(tx_id)` | Any existing AML flags on the transaction |
+| `get_transaction_history(entity_id)` | Prior transaction patterns for context |
+
+#### Technical Diagnosis Agent
+| Tool | Description |
+|---|---|
+| `validate_iban(iban)` | IBAN checksum + format (shared with Investigation Agent) |
+| `validate_bic(bic)` | BIC format validation |
+| `check_duplicate(reference, amount, sender_bic)` | Detects duplicate payment references |
+| `get_fx_limits(currency_pair, amount)` | Checks amount against configured FX limits |
+| `validate_iso20022_fields(message)` | Field-level validation against pacs.008 schema |
+| `suggest_correction(field, value, error_type)` | Proposes corrected field value for auto-correctable errors |
+
+#### Resolution Agent
+| Tool | Description |
+|---|---|
+| `create_recommendation(findings, action_type)` | Structures the resolution recommendation with rationale |
+| `log_case(tx_id, summary, recommendation)` | Writes full investigation to audit trail |
+| `submit_for_approval(recommendation_id)` | Puts recommendation in human approval queue (HITL gate) |
+| `execute_resolution(resolution_id, approval_token)` | Executes only after human approval — gated |
+
+---
+
+### Track 2 — Bottleneck Detection
+
+#### Monitor Agent
+| Tool | Description |
+|---|---|
+| `get_inflight_payments()` | All in-flight payments with current step and elapsed time |
+| `get_sla_benchmark(corridor, rail, step)` | p50 / p95 / breach threshold for a given corridor+step |
+| `calculate_risk_level(tx_id)` | On-track / at-risk / breached based on elapsed vs benchmark |
+| `poll_payment_status(tx_id)` | Latest status update for a specific payment |
+
+#### Bottleneck Analysis Agent
+| Tool | Description |
+|---|---|
+| `get_payment_lifecycle(tx_id)` | Full step-by-step timeline with timestamps and expected durations |
+| `get_correspondent_stats(bic)` | Current processing time stats and operational status for a correspondent |
+| `get_corridor_performance(from_currency, to_currency, rail)` | Corridor-level latency metrics |
+| `identify_delayed_step(tx_id)` | Pinpoints which step in the journey is causing the delay |
+
+#### Pattern Agent
+| Tool | Description |
+|---|---|
+| `get_payments_via_correspondent(bic, time_window)` | All payments routed through a given correspondent in the window |
+| `get_payments_on_rail(rail, time_window)` | All payments on a given rail in the window |
+| `calculate_delay_correlation(bic)` | Checks whether multiple payments share a delay at the same point |
+| `get_historical_incidents(bic)` | Prior degradation incidents with this correspondent |
+| `check_correspondent_status(bic)` | Known operational status: normal / degraded / outage |
+
+#### Alert Agent
+| Tool | Description |
+|---|---|
+| `create_alert(payments_at_risk, root_cause, recommended_action)` | Structured alert with pre-populated context |
+| `notify_ops_team(alert_id)` | Sends alert to ops queue |
+| `get_escalation_contacts(bic, corridor)` | Who to contact at the correspondent / internally |
+| `log_bottleneck_incident(incident_details)` | Records incident for audit trail and future pattern learning |
+
+---
+
+### MCP Server Strategy
+
+Expose all tools above as a single **PayInvestigator MCP server** with two resource namespaces:
+
+```
+payinvestigator/
+├── exceptions/        ← Track 1 tools
+│   ├── get_payment_record
+│   ├── classify_exception
+│   ├── screen_entity
+│   └── ...
+└── monitoring/        ← Track 2 tools
+    ├── get_inflight_payments
+    ├── get_sla_benchmark
+    ├── calculate_delay_correlation
+    └── ...
+```
+
+**Implementation order:** build as raw Python functions first (fastest), then wrap in FastMCP at the end if time allows. The agent logic doesn't change — only how tools are served.
 
 ---
 
