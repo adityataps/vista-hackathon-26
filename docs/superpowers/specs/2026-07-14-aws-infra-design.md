@@ -1,7 +1,7 @@
 # AWS Infrastructure Design — PayInvestigator
 **Date:** 2026-07-14  
 **Region:** `us-west-2`  
-**Domain:** `vistahack26.tapshalkar.com` (Cloudflare DNS)
+**Domain:** `vistahack26.tapshalkar.com` (Cloudflare DNS → AWS ALB)
 
 ---
 
@@ -12,28 +12,31 @@ GitHub (push to main)
         │
         ▼
 GitHub Actions (OIDC → AWS)
-  1. Build backend image  → push to ECR (payinvestigator-backend)
-  2. Build frontend image → push to ECR (payinvestigator-frontend)
-  3. SSH into EC2 → docker compose pull && docker compose up -d
+  1. Build + push backend image  → ECR (payinvestigator-backend)
+  2. Build + push frontend image → ECR (payinvestigator-frontend)
+  3. ECS deploy backend service  (rolling update, wait for stability)
+  4. ECS deploy frontend service (rolling update, wait for stability)
         │
         ▼
-EC2 t3.medium (us-west-2)  ←── Elastic IP
-  ┌─────────────────────────────────────┐
-  │  Nginx (port 80)                    │
-  │    /api/* → FastAPI :8080           │
-  │    /*     → React static files      │
-  │                                     │
-  │  FastAPI + LangGraph (:8080)        │
-  │    ├── pulls mock data from S3      │
-  │    └── calls Bedrock (claude-sonnet-4-6)    │
-  └─────────────────────────────────────┘
+Cloudflare DNS (DNS only, grey cloud)
+  vistahack26.tapshalkar.com  CNAME →  ALB DNS name
         │
         ▼
-Cloudflare DNS (proxied, orange cloud)
-  vistahack26.tapshalkar.com → Elastic IP
-  Cloudflare terminates HTTPS; forwards HTTP to EC2:80
-  SSL mode: Full
+ALB (HTTPS :443, ACM cert)
+  HTTP :80 → redirect to HTTPS
+  /api/*   → Backend Target Group  (Fargate task, port 8080)
+  /*       → Frontend Target Group (Fargate task, port 80)
+        │             │
+        ▼             ▼
+  FastAPI        Nginx serving
+  + LangGraph    React build
+  (:8080)        (:80)
+      │
+      ├── S3 (mock data, seeded into SQLite on startup)
+      └── Bedrock (claude-sonnet-4-6)
 ```
+
+**TLS:** ACM cert on the ALB terminates HTTPS. Cloudflare is DNS-only (grey cloud) — client talks directly to ALB, no Cloudflare proxy. No cert needed on the containers.
 
 ---
 
@@ -41,17 +44,30 @@ Cloudflare DNS (proxied, orange cloud)
 
 | Resource | Name / Details |
 |---|---|
-| `aws_instance` | `t3.medium`, Amazon Linux 2023, `us-west-2a`. User data installs Docker, Docker Compose, AWS CLI; logs into ECR on boot. |
-| `aws_eip` | Elastic IP attached to instance. Cloudflare A record points here. |
-| `aws_security_group` | Inbound: 80 from Cloudflare IP ranges; 22 from `0.0.0.0/0` (SSH for GitHub Actions). Outbound: all. |
-| `aws_ecr_repository` | `payinvestigator-backend` — image lifecycle: keep last 5. |
-| `aws_ecr_repository` | `payinvestigator-frontend` — image lifecycle: keep last 5. |
-| `aws_s3_bucket` | `payinvestigator-mockdata-<account_id>` — private, versioning off. Holds JSON mock data files seeded into SQLite on container startup. |
-| `aws_iam_role` (EC2) | Instance profile. Policies: `s3:GetObject` + `s3:ListBucket` on mock data bucket; `bedrock:InvokeModel` on `claude-sonnet-4-6` ARN. |
-| `aws_iam_role` (GitHub Actions) | OIDC trust: `repo:AdityaTapshalkar/vista-hackathon-26:ref:refs/heads/main`. Policies: `ecr:GetAuthorizationToken`; `ecr:BatchCheckLayerAvailability`, `ecr:PutImage`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload` on both repos; `ec2:DescribeInstances` (resolve EIP). |
-| `aws_iam_openid_connect_provider` | GitHub Actions OIDC provider (`token.actions.githubusercontent.com`). |
-| `aws_key_pair` | `payinvestigator-deploy` — public key managed in Terraform; private key stored as `EC2_SSH_PRIVATE_KEY` GitHub Secret. |
-| `cloudflare_record` | A record, name `vistahack26`, value = Elastic IP, proxied = `true`. |
+| `aws_ecr_repository` x2 | `payinvestigator-backend`, `payinvestigator-frontend`. Lifecycle: keep last 5 images. |
+| `aws_ecs_cluster` | `payinvestigator` |
+| `aws_ecs_task_definition` (backend) | Fargate, 0.5 vCPU / 1 GB. Container: FastAPI on port 8080. CloudWatch logs. Uses task IAM role for Bedrock + S3. |
+| `aws_ecs_task_definition` (frontend) | Fargate, 0.25 vCPU / 0.5 GB. Container: Nginx serving React on port 80. |
+| `aws_ecs_service` x2 | One per task def. `desired_count = 1`. Rolling deploy: min 0%, max 200%. |
+| `aws_lb` | Internet-facing ALB. Subnets: 2+ public subnets from default VPC. |
+| `aws_lb_listener` (HTTP) | Port 80 → redirect to HTTPS 443. |
+| `aws_lb_listener` (HTTPS) | Port 443, ACM cert. Default action → frontend TG. |
+| `aws_lb_listener_rule` | Path `/api/*` → backend TG. Priority 10. |
+| `aws_lb_target_group` (backend) | Port 8080, protocol HTTP. Health check: `GET /health`. |
+| `aws_lb_target_group` (frontend) | Port 80, protocol HTTP. Health check: `GET /`. |
+| `aws_acm_certificate` | `vistahack26.tapshalkar.com`, DNS validation. |
+| `aws_acm_certificate_validation` | Waits for cert to be issued before ALB listener uses it. |
+| `aws_security_group` (ALB) | Inbound: 80 + 443 from `0.0.0.0/0`. Outbound: all. |
+| `aws_security_group` (backend task) | Inbound: 8080 from ALB SG only. Outbound: all. |
+| `aws_security_group` (frontend task) | Inbound: 80 from ALB SG only. Outbound: all. |
+| `aws_s3_bucket` | `payinvestigator-mockdata-<account_id>` — private. Mock data JSON files. |
+| `aws_iam_role` (task execution) | Shared across both tasks. ECR pull + CloudWatch Logs write. |
+| `aws_iam_role` (backend task) | `bedrock:InvokeModel` on `claude-sonnet-4-6`; `s3:GetObject` + `s3:ListBucket` on mock data bucket. |
+| `aws_iam_role` (GitHub Actions) | OIDC trust: `repo:adityataps/vista-hackathon-26:ref:refs/heads/main`. ECR push on both repos; ECS `RegisterTaskDefinition` + `UpdateService` + `DescribeServices` + `DescribeTaskDefinition`. |
+| `aws_iam_openid_connect_provider` | GitHub Actions (`token.actions.githubusercontent.com`). |
+| `aws_cloudwatch_log_group` x2 | `/ecs/payinvestigator-backend`, `/ecs/payinvestigator-frontend`. Retention: 7 days. |
+| `cloudflare_record` | CNAME, name `vistahack26`, value = ALB DNS name, proxied = `false`. |
+| `cloudflare_record` (ACM validation) | CNAME record created by ACM validation — managed by Terraform. |
 
 ---
 
@@ -59,19 +75,22 @@ Cloudflare DNS (proxied, orange cloud)
 
 ```
 infra/
-├── main.tf           # provider config (aws + cloudflare), backend
-├── variables.tf      # region, account_id, cloudflare_zone_id, cloudflare_api_token, ssh_public_key
-├── outputs.tf        # elastic_ip, ecr_backend_url, ecr_frontend_url, s3_bucket_name
-├── ec2.tf            # aws_instance, aws_eip, aws_eip_association, aws_key_pair
-├── security_group.tf # aws_security_group (cloudflare IPs + SSH)
-├── ecr.tf            # aws_ecr_repository x2, aws_ecr_lifecycle_policy x2
-├── s3.tf             # aws_s3_bucket, aws_s3_bucket_public_access_block
-├── iam.tf            # EC2 instance profile + role; GitHub Actions OIDC role
-└── dns.tf            # cloudflare_record
+├── main.tf            # aws + cloudflare provider config; data sources (default VPC, subnets)
+├── variables.tf       # region, account_id, cloudflare_zone_id, cloudflare_api_token
+├── outputs.tf         # alb_dns_name, ecr_backend_url, ecr_frontend_url, s3_bucket_name
+├── ecr.tf             # aws_ecr_repository x2, lifecycle policies
+├── ecs.tf             # cluster, task definitions, services
+├── alb.tf             # ALB, listeners, target groups, listener rules
+├── acm.tf             # certificate + DNS validation record + validation wait
+├── security_groups.tf # ALB SG, backend task SG, frontend task SG
+├── iam.tf             # task execution role; backend task role; GitHub Actions OIDC role + provider
+├── s3.tf              # mock data bucket + block public access
+├── cloudwatch.tf      # log groups
+└── dns.tf             # cloudflare_record (CNAME to ALB + ACM validation record)
 ```
 
-Terraform state: local `terraform.tfstate` for the hackathon (no S3 backend needed).  
-Sensitive vars (`cloudflare_api_token`, `ssh_public_key`) passed via `terraform.tfvars` (gitignored).
+State: local `terraform.tfstate` (sufficient for a hackathon, do not commit).  
+Sensitive vars in `terraform.tfvars` (gitignored): `cloudflare_api_token`.
 
 ---
 
@@ -82,121 +101,86 @@ Sensitive vars (`cloudflare_api_token`, `ssh_public_key`) passed via `terraform.
 
 ```yaml
 steps:
-  1. actions/checkout
-  2. aws-actions/configure-aws-credentials (OIDC, role = GitHub Actions IAM role ARN)
-  3. aws-actions/amazon-ecr-login
-  4. Build backend Docker image; tag :latest + :<git-sha>; push both tags to ECR
-  5. Build frontend Docker image; tag :latest + :<git-sha>; push both tags to ECR
-  6. SSH into EC2 (appleboy/ssh-action, key = EC2_SSH_PRIVATE_KEY secret)
-     a. aws ecr get-login-password | docker login ...
-     b. docker compose pull
-     c. docker compose up -d
-     d. docker image prune -f
+  1.  actions/checkout
+  2.  aws-actions/configure-aws-credentials   # OIDC, no long-lived keys
+  3.  aws-actions/amazon-ecr-login
+  4.  Build backend image; push :latest + :<git-sha> to ECR
+  5.  Build frontend image; push :latest + :<git-sha> to ECR
+  6.  aws ecs describe-task-definition        # download current backend task def
+  7.  aws-actions/amazon-ecs-render-task-definition  # swap in new backend image
+  8.  aws-actions/amazon-ecs-deploy-task-definition  # deploy + wait for stability
+  9.  Repeat steps 6–8 for frontend service
 ```
 
 **GitHub Secrets required:**
 - `AWS_ACCOUNT_ID`
-- `EC2_HOST` (Elastic IP)
-- `EC2_SSH_PRIVATE_KEY`
-- `EC2_SSH_USER` (`ec2-user`)
+
+No SSH keys. No long-lived AWS credentials. OIDC handles everything.
 
 ---
 
-## docker-compose.yml (on EC2)
+## Docker Images
 
-```yaml
-services:
-  backend:
-    image: <account>.dkr.ecr.us-west-2.amazonaws.com/payinvestigator-backend:latest
-    ports:
-      - "8080:8080"
-    environment:
-      - AWS_DEFAULT_REGION=us-west-2
-      - S3_BUCKET=payinvestigator-mockdata-<account_id>
-    restart: unless-stopped
-
-  frontend:
-    image: <account>.dkr.ecr.us-west-2.amazonaws.com/payinvestigator-frontend:latest
-    ports:
-      - "3000:80"
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - backend
-      - frontend
-    restart: unless-stopped
+```dockerfile
+# Backend — FastAPI + LangGraph (backend/Dockerfile)
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8080
+CMD ["sh", "-c", "python seed_db.py && uvicorn main:app --host 0.0.0.0 --port 8080"]
 ```
 
-The `backend` container uses the EC2 instance profile for AWS credentials — no secrets in env vars.
+```dockerfile
+# Frontend — React build served by Nginx (frontend/Dockerfile)
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package*.json .
+RUN npm ci
+COPY . .
+RUN npm run build
 
----
-
-## Nginx Config (nginx.conf on EC2)
-
-```nginx
-server {
-    listen 80;
-
-    location /api/ {
-        proxy_pass http://backend:8080/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    location / {
-        proxy_pass http://frontend:80/;
-        proxy_set_header Host $host;
-    }
-}
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
 ```
 
----
-
-## EC2 User Data (bootstrap script)
-
-On first boot:
-1. Install Docker + Docker Compose plugin
-2. Add `ec2-user` to the `docker` group
-3. Install AWS CLI v2
-4. Log into ECR
-5. Place `docker-compose.yml` and `nginx.conf` in `/home/ec2-user/app/`
-6. Run `docker compose up -d`
-
-The compose file and nginx config are either baked into the user data or pulled from S3.
-
----
-
-## TLS / Cloudflare Setup
-
-- Cloudflare DNS A record for `vistahack26.tapshalkar.com` → Elastic IP, **proxied** (orange cloud)
-- SSL/TLS mode in Cloudflare dashboard: **Flexible** (Cloudflare ↔ browser is HTTPS; Cloudflare ↔ EC2 is HTTP on port 80 — no cert on EC2 required). Use Full only if you add a self-signed cert to Nginx.
-- Security group allows port 80 from [Cloudflare published IP ranges](https://www.cloudflare.com/ips/) only — direct non-Cloudflare access to EC2:80 is blocked. Port 443 on EC2 is not used (Cloudflare handles TLS).
+The backend container uses the ECS task IAM role for AWS credentials — no secrets in env vars or image.
 
 ---
 
 ## IAM Permission Boundaries
 
-### EC2 Instance Profile
+### Task Execution Role (shared)
 ```
-s3:GetObject, s3:ListBucket → arn:aws:s3:::payinvestigator-mockdata-*
-bedrock:InvokeModel          → arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-6*
+ecr:GetAuthorizationToken        → *
+ecr:BatchCheckLayerAvailability,
+ecr:GetDownloadUrlForLayer,
+ecr:BatchGetImage                → arn:aws:ecr:us-west-2:<account>:repository/payinvestigator-*
+logs:CreateLogStream,
+logs:PutLogEvents                → arn:aws:logs:us-west-2:<account>:log-group:/ecs/payinvestigator-*
+```
+
+### Backend Task Role
+```
+bedrock:InvokeModel  → arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-6*
+s3:GetObject,
+s3:ListBucket        → arn:aws:s3:::payinvestigator-mockdata-<account_id>
 ```
 
 ### GitHub Actions OIDC Role
 ```
-ecr:GetAuthorizationToken    → *
+ecr:GetAuthorizationToken              → *
 ecr:BatchCheckLayerAvailability,
-ecr:PutImage,
-ecr:InitiateLayerUpload,
+ecr:PutImage, ecr:InitiateLayerUpload,
 ecr:UploadLayerPart,
-ecr:CompleteLayerUpload      → arn:aws:ecr:us-west-2:<account>:repository/payinvestigator-*
-ec2:DescribeInstances        → *
+ecr:CompleteLayerUpload                → arn:aws:ecr:us-west-2:<account>:repository/payinvestigator-*
+ecs:RegisterTaskDefinition             → *
+ecs:UpdateService,
+ecs:DescribeServices,
+ecs:DescribeTaskDefinition             → payinvestigator cluster + both services
+iam:PassRole                           → task execution role + backend task role
 ```
 
 ---
@@ -211,6 +195,7 @@ ec2:DescribeInstances        → *
 
 ## Remaining Pre-Apply Steps
 
-- Generate SSH keypair locally; add public key to `terraform.tfvars` as `ssh_public_key`
-- Add Cloudflare API token to `terraform.tfvars` as `cloudflare_api_token` (needs `Zone:DNS:Edit` permission for `tapshalkar.com`)
-- Set Cloudflare SSL/TLS mode to **Flexible** in the dashboard for `tapshalkar.com` before first deploy
+- Add Cloudflare API token to `terraform.tfvars` as `cloudflare_api_token` (needs `Zone:DNS:Edit` for `tapshalkar.com`)
+- Add `AWS_ACCOUNT_ID` to GitHub Secrets
+- Add `backend/Dockerfile` and `frontend/Dockerfile` before first CI run
+- Add `GET /health` endpoint to FastAPI before `terraform apply` (ALB health check depends on it)

@@ -135,27 +135,28 @@ GitHub (push to main)
         │
         ▼
 GitHub Actions (OIDC → AWS)
-  1. Build backend image  → push to ECR (payinvestigator-backend)
-  2. Build frontend image → push to ECR (payinvestigator-frontend)
-  3. SSH into EC2 → docker compose pull && docker compose up -d
+  1. Build + push backend image  → ECR (payinvestigator-backend)
+  2. Build + push frontend image → ECR (payinvestigator-frontend)
+  3. ECS rolling deploy — backend service  (wait for stability)
+  4. ECS rolling deploy — frontend service (wait for stability)
         │
         ▼
-EC2 t3.medium (us-west-2)  ←── Elastic IP
-  ┌─────────────────────────────────────┐
-  │  Nginx (port 80)                    │
-  │    /api/* → FastAPI :8080           │
-  │    /*     → React (Nginx) :3000     │
-  │                                     │
-  │  FastAPI + LangGraph (:8080)        │
-  │    ├── pulls mock data from S3      │
-  │    └── calls Bedrock (claude-sonnet-4-6)    │
-  └─────────────────────────────────────┘
+Cloudflare DNS (DNS only, grey cloud)
+  vistahack26.tapshalkar.com  CNAME  →  ALB DNS name
         │
         ▼
-Cloudflare DNS (proxied)
-  vistahack26.tapshalkar.com → Elastic IP
-  Cloudflare terminates HTTPS; forwards HTTP to EC2:80
-  SSL mode: Flexible (no cert on EC2 needed)
+ALB (HTTPS :443, ACM cert for vistahack26.tapshalkar.com)
+  HTTP :80 → redirect to HTTPS
+  /api/*   → Backend Target Group  (Fargate, port 8080)
+  /*       → Frontend Target Group (Fargate, port 80)
+        │              │
+        ▼              ▼
+  FastAPI          Nginx serving
+  + LangGraph      React build
+  (:8080)          (:80)
+      │
+      ├── S3 (mock data JSON → SQLite on startup)
+      └── Bedrock (claude-sonnet-4-6)
 ```
 
 ### GitHub Actions Pipeline
@@ -166,61 +167,70 @@ steps:
   1. Checkout code
   2. Configure AWS credentials (OIDC — no long-lived keys)
   3. Login to ECR
-  4. Build + push backend image (tags: :latest + :<git-sha>)
+  4. Build + push backend image  (tags: :latest + :<git-sha>)
   5. Build + push frontend image (tags: :latest + :<git-sha>)
-  6. SSH into EC2
-     a. docker compose pull
-     b. docker compose up -d
-     c. docker image prune -f
+  6. Download current backend ECS task definition
+  7. Render new task def with updated backend image
+  8. Deploy to backend ECS service + wait for stability
+  9. Repeat steps 6–8 for frontend service
 ```
+
+No SSH keys. No long-lived AWS credentials.
 
 ### Docker Images
 
 Two images, two ECR repositories:
 
 ```dockerfile
-# Backend — FastAPI + LangGraph
+# Backend — FastAPI + LangGraph (backend/Dockerfile)
 FROM python:3.12-slim
+WORKDIR /app
 COPY requirements.txt .
-RUN pip install fastapi uvicorn langgraph langchain-aws boto3 ...
+RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-# On startup: pull mock data from S3, seed SQLite, start uvicorn
+EXPOSE 8080
 CMD ["sh", "-c", "python seed_db.py && uvicorn main:app --host 0.0.0.0 --port 8080"]
 
-# Frontend — React served by Nginx
+# Frontend — React served by Nginx (frontend/Dockerfile)
 FROM node:20-alpine AS build
+WORKDIR /app
+COPY package*.json .
+RUN npm ci
 COPY . .
-RUN npm ci && npm run build
+RUN npm run build
 
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
 ```
 
 ### Data Strategy — SQLite + S3
 
-- **S3 bucket** (`payinvestigator-mockdata`) holds master mock data JSON files (transactions, error catalog, BIC directory, sanctions list, lifecycle events, SLA benchmarks)
-- **On container startup**, `seed_db.py` downloads from S3, inserts into a local SQLite DB
+- **S3 bucket** (`payinvestigator-mockdata-<account_id>`) holds master mock data JSON files (transactions, error catalog, BIC directory, sanctions list, lifecycle events, SLA benchmarks)
+- **On container startup**, `seed_db.py` downloads from S3 and seeds a local SQLite DB
 - **SQLite** lives on the container's ephemeral disk — fine for a demo with fixed mock data
 - **No persistence needed** — mock data is static; S3 is the source of truth
 
-### Subdomain Setup
+### Subdomain + TLS Setup
 
 - Domain: `tapshalkar.com` on Cloudflare
-- Subdomain: `vistahack26.tapshalkar.com` → Elastic IP (A record, proxied)
-- Cloudflare handles TLS (Flexible SSL mode) — no ACM cert needed
-- DNS record managed via Terraform Cloudflare provider
+- Subdomain: `vistahack26.tapshalkar.com` CNAME → ALB DNS name (DNS only, not proxied)
+- ACM certificate for `vistahack26.tapshalkar.com`, DNS-validated via Cloudflare CNAME record
+- Both DNS records managed via Terraform Cloudflare provider
 
 ### Key AWS + Infra Checklist
 
 - [ ] ECR repositories created (`payinvestigator-backend`, `payinvestigator-frontend`)
-- [ ] EC2 t3.medium provisioned with Elastic IP
-- [ ] S3 bucket created, mock data JSON files uploaded
-- [ ] IAM instance profile (EC2): Bedrock invoke + S3 read
-- [ ] IAM OIDC role (GitHub Actions): ECR push permissions
-- [ ] SSH keypair generated; public key in Terraform, private key in GitHub Secrets
+- [ ] ECS cluster + Fargate services defined (backend + frontend)
+- [ ] ALB + target groups + HTTPS listener + path-based routing
+- [ ] ACM certificate issued and validated via Cloudflare
+- [ ] S3 bucket created; mock data JSON files uploaded
+- [ ] IAM task execution role (ECR pull + CloudWatch Logs)
+- [ ] IAM backend task role (Bedrock invoke + S3 read)
+- [ ] IAM OIDC role (GitHub Actions): ECR push + ECS deploy
 - [x] Bedrock model access confirmed (`claude-sonnet-4-6`, `us-west-2`)
-- [ ] Cloudflare A record + SSL mode set to Flexible
-- [ ] `docker-compose.yml` + `nginx.conf` placed on EC2 (via user data)
+- [ ] `AWS_ACCOUNT_ID` added to GitHub Secrets
+- [ ] `GET /health` endpoint added to FastAPI (ALB health check)
 
 ---
 
