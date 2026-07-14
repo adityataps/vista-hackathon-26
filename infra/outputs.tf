@@ -11,10 +11,10 @@ output "ecr_frontend_url" {
   value = aws_ecr_repository.frontend.repository_url
 }
 
-# S3 outputs (Task 3)
-# output "s3_bucket_name" {
-#   value = aws_s3_bucket.mockdata.bucket
-# }
+# S3 outputs (Task 4)
+output "s3_bucket_name" {
+  value = aws_s3_bucket.mockdata.bucket
+}
 
 # IAM outputs (Task 5)
 # output "github_actions_role_arn" {
