@@ -68,6 +68,10 @@ resource "aws_lambda_function" "payment_ingest" {
   timeout       = 60
   memory_size   = 512
 
+  image_config {
+    command = ["handler.lambda_handler"]
+  }
+
   vpc_config {
     subnet_ids         = data.aws_subnets.public.ids
     security_group_ids = [aws_security_group.lambda_ingest.id]
