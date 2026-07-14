@@ -1,17 +1,17 @@
 """Lambda handler: SQS-triggered pacs.008 XML ingest into PostgreSQL.
 
 SQS receives S3 ObjectCreated events for the payments/ prefix.
-Handler downloads each XML from S3, parses key pacs.008 fields, and upserts
-into the payments table (ON CONFLICT msg_id DO NOTHING for idempotency).
+Downloads each XML from S3, parses key pacs.008 fields, upserts into the
+payments table (ON CONFLICT msg_id DO NOTHING for idempotency).
 """
 import json
 import logging
 import os
 import re
-import defusedxml.ElementTree as ET
 from decimal import Decimal
 
 import boto3
+import defusedxml.ElementTree as ET
 import psycopg2
 
 logger = logging.getLogger(__name__)
@@ -86,21 +86,21 @@ def _parse_pacs008(xml_content):
     currency = amt_el.get('Ccy') if amt_el is not None else None
 
     return {
-        'msg_id': tx(f'.//{h}BizMsgIdr'),
-        'uetr': tx(f'{pmt_id}/{p}UETR'),
-        'instr_id': tx(f'{pmt_id}/{p}InstrId'),
-        'e2e_id': tx(f'{pmt_id}/{p}EndToEndId'),
-        'amount': amount,
-        'currency': currency,
+        'msg_id':         tx(f'.//{h}BizMsgIdr'),
+        'uetr':           tx(f'{pmt_id}/{p}UETR'),
+        'instr_id':       tx(f'{pmt_id}/{p}InstrId'),
+        'e2e_id':         tx(f'{pmt_id}/{p}EndToEndId'),
+        'amount':         amount,
+        'currency':       currency,
         'settlement_date': tx(f'{tx_path}/{p}IntrBkSttlmDt'),
-        'sender_bic': tx(f'.//{h}Fr/{h}FIId/{h}FinInstnId/{h}BICFI'),
-        'receiver_bic': tx(f'.//{h}To/{h}FIId/{h}FinInstnId/{h}BICFI'),
-        'debtor_bic': tx(f'{tx_path}/{p}DbtrAgt/{p}FinInstnId/{p}BICFI'),
-        'creditor_bic': tx(f'{tx_path}/{p}CdtrAgt/{p}FinInstnId/{p}BICFI'),
-        'debtor_name': tx(f'{tx_path}/{p}Dbtr/{p}Nm'),
-        'debtor_iban': tx(f'{dbtr_acct}/{p}IBAN') or tx(f'{dbtr_acct}/{p}Othr/{p}Id'),
-        'creditor_name': tx(f'{tx_path}/{p}Cdtr/{p}Nm'),
-        'creditor_iban': tx(f'{cdtr_acct}/{p}IBAN') or tx(f'{cdtr_acct}/{p}Othr/{p}Id'),
+        'sender_bic':     tx(f'.//{h}Fr/{h}FIId/{h}FinInstnId/{h}BICFI'),
+        'receiver_bic':   tx(f'.//{h}To/{h}FIId/{h}FinInstnId/{h}BICFI'),
+        'debtor_bic':     tx(f'{tx_path}/{p}DbtrAgt/{p}FinInstnId/{p}BICFI'),
+        'creditor_bic':   tx(f'{tx_path}/{p}CdtrAgt/{p}FinInstnId/{p}BICFI'),
+        'debtor_name':    tx(f'{tx_path}/{p}Dbtr/{p}Nm'),
+        'debtor_iban':    tx(f'{dbtr_acct}/{p}IBAN') or tx(f'{dbtr_acct}/{p}Othr/{p}Id'),
+        'creditor_name':  tx(f'{tx_path}/{p}Cdtr/{p}Nm'),
+        'creditor_iban':  tx(f'{cdtr_acct}/{p}IBAN') or tx(f'{cdtr_acct}/{p}Othr/{p}Id'),
     }
 
 
