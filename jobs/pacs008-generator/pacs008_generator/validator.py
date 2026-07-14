@@ -12,7 +12,7 @@ _cache = {}
 def _schema(name):
     if name not in _cache:
         path = os.path.join(SCHEMA_DIR, name)
-        if not os.path.isfile(path):
+        if not os.path.isfile(path) or os.path.getsize(path) == 0:
             raise RuntimeError(
                 "CBPR+ XSD fehlt: %s - die MyStandards-Schemas sind lizenzpflichtig "
                 "und nicht im oeffentlichen Repo. Siehe schemas/README.md, die zwei "
