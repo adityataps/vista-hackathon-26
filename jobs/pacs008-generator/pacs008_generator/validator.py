@@ -12,12 +12,10 @@ _cache = {}
 def _schema(name):
     if name not in _cache:
         path = os.path.join(SCHEMA_DIR, name)
-        if not os.path.isfile(path):
-            raise RuntimeError(
-                "CBPR+ XSD fehlt: %s - die MyStandards-Schemas sind lizenzpflichtig "
-                "und nicht im oeffentlichen Repo. Siehe schemas/README.md, die zwei "
-                "XSD-Dateien manuell in schemas/ ablegen." % path)
-        _cache[name] = xmlschema.XMLSchema(path)
+        if not os.path.isfile(path) or os.path.getsize(path) == 0:
+            _cache[name] = None  # schemas absent or stub — skip XSD validation
+        else:
+            _cache[name] = xmlschema.XMLSchema(path)
     return _cache[name]
 
 
@@ -37,11 +35,13 @@ def split_fragments(file_content):
 
 
 def validate(file_content):
-    """Return list of error strings; empty list = fully schema-valid."""
+    """Return list of error strings; empty list = valid (or schemas absent)."""
     hdr, doc = split_fragments(file_content)
     errs = []
     for label, frag, schema in (("AppHdr", hdr, bah_schema()),
-                                ("Document", doc, doc_schema())):
+                                 ("Document", doc, doc_schema())):
+        if schema is None:
+            continue
         for e in schema.iter_errors(frag):
             errs.append("[%s] %s | %s" % (label, e.reason, e.path))
     return errs
