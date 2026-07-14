@@ -22,3 +22,13 @@ resource "aws_acm_certificate_validation" "main" {
   certificate_arn         = aws_acm_certificate.main.arn
   validation_record_fqdns = [for r in cloudflare_record.acm_validation : r.hostname]
 }
+
+# App CNAME — vistahack26.tapshalkar.com → ALB
+resource "cloudflare_record" "app" {
+  zone_id = var.cloudflare_zone_id
+  name    = "vistahack26"
+  content = aws_lb.main.dns_name
+  type    = "CNAME"
+  ttl     = 300
+  proxied = false
+}
