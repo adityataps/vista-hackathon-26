@@ -131,44 +131,31 @@ Payment Lifecycle Event Stream (continuous)
 ### AWS Architecture
 
 ```
-                        GitHub
-                           │
-                    git push / PR merge
-                           │
-                    GitHub Actions
-                    ┌──────┴───────┐
-                    │  CI/CD       │
-                    │  1. Build    │
-                    │  2. Push ECR │
-                    │  3. Deploy   │
-                    └──────┬───────┘
-                           │
-          ┌────────────────▼────────────────┐
-          │           AWS                   │
-          │                                 │
-          │  ECR ──── ECS Fargate           │
-          │  (image)   (container)          │
-          │               │                 │
-          │            FastAPI              │
-          │            + LangGraph          │
-          │               │                 │
-          │        ┌──────┴───────┐         │
-          │        │              │         │
-          │      SQLite         Bedrock     │
-          │   (seeded from    (Claude       │
-          │      S3 on         claude-sonnet-4-6)  │
-          │    startup)                     │
-          │                                 │
-          │  ALB (Application Load Balancer)│
-          │        │                        │
-          └────────┼────────────────────────┘
-                   │
-            subdomain.yourdomain.com
-            (ACM cert, HTTPS)
-                   │
-              React Frontend
-              (served via ALB
-               or S3 static site)
+GitHub (push to main)
+        │
+        ▼
+GitHub Actions (OIDC → AWS)
+  1. Build backend image  → push to ECR (payinvestigator-backend)
+  2. Build frontend image → push to ECR (payinvestigator-frontend)
+  3. SSH into EC2 → docker compose pull && docker compose up -d
+        │
+        ▼
+EC2 t3.medium (us-west-2)  ←── Elastic IP
+  ┌─────────────────────────────────────┐
+  │  Nginx (port 80)                    │
+  │    /api/* → FastAPI :8080           │
+  │    /*     → React (Nginx) :3000     │
+  │                                     │
+  │  FastAPI + LangGraph (:8080)        │
+  │    ├── pulls mock data from S3      │
+  │    └── calls Bedrock (claude-sonnet-4-6)    │
+  └─────────────────────────────────────┘
+        │
+        ▼
+Cloudflare DNS (proxied)
+  vistahack26.tapshalkar.com → Elastic IP
+  Cloudflare terminates HTTPS; forwards HTTP to EC2:80
+  SSL mode: Flexible (no cert on EC2 needed)
 ```
 
 ### GitHub Actions Pipeline
@@ -178,52 +165,62 @@ Payment Lifecycle Event Stream (continuous)
 steps:
   1. Checkout code
   2. Configure AWS credentials (OIDC — no long-lived keys)
-  3. Build Docker image
-  4. Push to ECR
-  5. Render new ECS task definition (new image tag)
-  6. Deploy to ECS Fargate service (rolling update)
-  7. Wait for service stability
+  3. Login to ECR
+  4. Build + push backend image (tags: :latest + :<git-sha>)
+  5. Build + push frontend image (tags: :latest + :<git-sha>)
+  6. SSH into EC2
+     a. docker compose pull
+     b. docker compose up -d
+     c. docker image prune -f
 ```
 
-### Docker Image Structure
+### Docker Images
+
+Two images, two ECR repositories:
 
 ```dockerfile
-# Single image — FastAPI + LangGraph backend
+# Backend — FastAPI + LangGraph
 FROM python:3.12-slim
 COPY requirements.txt .
 RUN pip install fastapi uvicorn langgraph langchain-aws boto3 ...
 COPY . .
 # On startup: pull mock data from S3, seed SQLite, start uvicorn
 CMD ["sh", "-c", "python seed_db.py && uvicorn main:app --host 0.0.0.0 --port 8080"]
+
+# Frontend — React served by Nginx
+FROM node:20-alpine AS build
+COPY . .
+RUN npm ci && npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
 ```
 
 ### Data Strategy — SQLite + S3
 
-- **S3 bucket** holds master mock data JSON files (transactions, error catalog, BIC directory, sanctions list, lifecycle events, SLA benchmarks)
+- **S3 bucket** (`payinvestigator-mockdata`) holds master mock data JSON files (transactions, error catalog, BIC directory, sanctions list, lifecycle events, SLA benchmarks)
 - **On container startup**, `seed_db.py` downloads from S3, inserts into a local SQLite DB
-- **SQLite** is in-memory or on the container's ephemeral disk — fine for a demo with fixed mock data
-- **No persistence needed** — mock data is static; S3 is the source of truth, not the DB
-
-> If you want persistence across restarts (e.g., to save investigation history), mount an **EFS volume** to the Fargate task. Add ~30 min of setup time.
+- **SQLite** lives on the container's ephemeral disk — fine for a demo with fixed mock data
+- **No persistence needed** — mock data is static; S3 is the source of truth
 
 ### Subdomain Setup
 
-1. Purchase ACM certificate for `hackathon.yourdomain.com` (DNS validation via Route 53 or registrar)
-2. Create ALB, attach ACM cert, configure HTTPS listener → forward to Fargate target group
-3. Add CNAME record: `hackathon.yourdomain.com` → ALB DNS name
-4. Frontend: either serve React from the same FastAPI container (static files) or deploy to S3 + CloudFront
+- Domain: `tapshalkar.com` on Cloudflare
+- Subdomain: `vistahack26.tapshalkar.com` → Elastic IP (A record, proxied)
+- Cloudflare handles TLS (Flexible SSL mode) — no ACM cert needed
+- DNS record managed via Terraform Cloudflare provider
 
-### Key AWS Services Checklist
+### Key AWS + Infra Checklist
 
-- [ ] ECR repository created
-- [ ] ECS cluster + Fargate service defined
-- [ ] ALB + target group + HTTPS listener
-- [ ] S3 bucket for mock data (upload JSON files before hackathon starts)
-- [ ] Bedrock model access confirmed (Claude claude-sonnet-4-6)
-- [ ] IAM role for Fargate task (Bedrock invoke + S3 read permissions)
-- [ ] IAM OIDC role for GitHub Actions (ECR push + ECS deploy permissions)
-- [ ] ACM certificate issued and validated
-- [ ] Route 53 / DNS CNAME record set
+- [ ] ECR repositories created (`payinvestigator-backend`, `payinvestigator-frontend`)
+- [ ] EC2 t3.medium provisioned with Elastic IP
+- [ ] S3 bucket created, mock data JSON files uploaded
+- [ ] IAM instance profile (EC2): Bedrock invoke + S3 read
+- [ ] IAM OIDC role (GitHub Actions): ECR push permissions
+- [ ] SSH keypair generated; public key in Terraform, private key in GitHub Secrets
+- [x] Bedrock model access confirmed (`claude-sonnet-4-6`, `us-west-2`)
+- [ ] Cloudflare A record + SSL mode set to Flexible
+- [ ] `docker-compose.yml` + `nginx.conf` placed on EC2 (via user data)
 
 ---
 
