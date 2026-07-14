@@ -1,6 +1,6 @@
 resource "aws_sqs_queue" "payment_ingest" {
   name                       = "${var.app_name}-payment-ingest"
-  visibility_timeout_seconds = 30
+  visibility_timeout_seconds = 360
   message_retention_seconds  = 86400
 }
 
