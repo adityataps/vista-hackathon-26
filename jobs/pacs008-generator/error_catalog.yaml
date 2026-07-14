@@ -24,12 +24,12 @@ errors:
     injector: bic_iban_country_mismatch
     description: "CdtrAgt BIC-Land stimmt nicht mit dem Land der Creditor-IBAN ueberein."
 
-  - code: BIC_UNKNOWN
-    title: "BIC unbekannt/inaktiv"
+  - code: BIC_INVALID_COUNTRY
+    title: "BIC mit ungueltigem Laendercode"
     category: routing
     severity: high
-    injector: bic_unknown
-    description: "CdtrAgt BIC ist formatgueltig, aber nicht im BIC-Verzeichnis (Fantasie-BIC)."
+    injector: bic_invalid_country
+    description: "CdtrAgt BIC formatgueltig, aber Position 5-6 ist kein ISO-3166-Laendercode - ohne Zusatzsystem kalkulierbar."
 
   - code: BENEFICIARY_NAME_INCOMPLETE
     title: "Beneficiary-Name unvollstaendig"
@@ -58,17 +58,3 @@ errors:
     severity: medium
     injector: xchg_rate_inconsistent
     description: "InstdAmt (Fremdwaehrung) * XchgRate weicht deutlich vom IntrBkSttlmAmt ab."
-
-  - code: SANCTIONS_NAME_HIT
-    title: "Sanctions-Screening-Treffer (Name)"
-    category: compliance
-    severity: high
-    injector: sanctions_name_hit
-    description: "Cdtr Name entspricht einem Eintrag der (fiktiven) Watchlist - Screening-Hit."
-
-  - code: ACCOUNT_CLOSED
-    title: "Beneficiary-Konto geschlossen (UTAP)"
-    category: beneficiary_data
-    severity: high
-    injector: account_closed
-    description: "Gueltige IBAN, aber Konto in Referenzdaten als geschlossen markiert - Unable to Apply."

@@ -5,9 +5,6 @@ import yaml
 
 from . import datapool
 
-WATCHLIST_NAMES = ["Orion Global Resources FZE", "Kestrel Maritime Holdings Ltd"]
-CLOSED_ACCOUNTS = []  # filled at runtime; exported to manifest as reference data
-
 _REGISTRY = {}
 
 
@@ -30,7 +27,7 @@ def load_catalog(path=None):
 
 
 def apply_error(entry, tx, ctx, rng):
-    """ctx: {'used_uetrs': [...], 'closed_accounts': [...]} shared batch state."""
+    """ctx: {'used_uetrs': [...]} shared batch state."""
     return _REGISTRY[entry["injector"]](tx, ctx, rng)
 
 
@@ -67,11 +64,12 @@ def _bic_iban_mm(tx, ctx, rng):
         tx["cdtr_agt_bic"], tx["cdtr_agt_bic"][4:6], p["iban"], iban_ctry)
 
 
-@injector("bic_unknown")
-def _bic_unknown(tx, ctx, rng):
-    fake = rng.choice(["QUUXDEZZXXX", "ZAPHGB2LXXX", "NOBKCHZZXXX"])
+@injector("bic_invalid_country")
+def _bic_invalid_country(tx, ctx, rng):
+    fake = rng.choice(["ZAPHZZ22XXX", "QUUXXX33XXX", "NOBKQQ2LXXX"])
     tx["cdtr_agt_bic"] = fake
-    return "CdtrAgt BIC %s existiert nicht im BIC-Verzeichnis" % fake
+    return ("CdtrAgt BIC %s traegt ungueltigen Laendercode '%s' (kein ISO-3166)"
+            % (fake, fake[4:6]))
 
 
 @injector("beneficiary_name_incomplete")
@@ -103,19 +101,3 @@ def _fx_inconsistent(tx, ctx, rng):
     tx["xchg_rate"] = "0.5"  # implies settlement ~= half of instructed -> inconsistent
     return ("InstdAmt %s %s * XchgRate 0.5 != IntrBkSttlmAmt %s %s"
             % (tx["instd_amt"], tx["instd_ccy"], tx["amt"], tx["ccy"]))
-
-
-@injector("sanctions_name_hit")
-def _sanctions(tx, ctx, rng):
-    hit = rng.choice(WATCHLIST_NAMES)
-    tx["cdtr"]["nm"] = hit
-    return "Cdtr Name '%s' matcht Watchlist-Eintrag" % hit
-
-
-@injector("account_closed")
-def _acct_closed(tx, ctx, rng):
-    p = tx["cdtr"]
-    if not p.get("iban"):
-        p.update(datapool.make_party(rng, "CH"))
-    ctx["closed_accounts"].append(p["iban"])
-    return "Konto %s ist in den Referenzdaten als GESCHLOSSEN markiert (UTAP)" % p["iban"]
