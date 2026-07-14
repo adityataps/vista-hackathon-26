@@ -1,15 +1,82 @@
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Optional
 
 import boto3
+import psycopg2
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from pacs008_generator.generator import generate_batch
 
-S3_BUCKET = os.environ.get("S3_BUCKET", "")
+logger = logging.getLogger(__name__)
+
+S3_BUCKET    = os.environ.get("S3_BUCKET", "")
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+_db_conn = None
+
+
+def _get_db():
+    global _db_conn
+    if not DATABASE_URL:
+        return None
+    try:
+        if _db_conn is None or _db_conn.closed:
+            _db_conn = psycopg2.connect(DATABASE_URL)
+            _ensure_events_schema(_db_conn)
+    except Exception as exc:
+        logger.warning("DB connect failed: %s", exc)
+        return None
+    return _db_conn
+
+
+def _ensure_events_schema(conn):
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS payment_events (
+                id            SERIAL PRIMARY KEY,
+                event_id      TEXT UNIQUE NOT NULL,
+                uetr          TEXT NOT NULL,
+                msg_id        TEXT,
+                event_type    TEXT NOT NULL,
+                status_code   TEXT,
+                source_system TEXT,
+                actor         TEXT,
+                detail        TEXT,
+                occurred_at   TIMESTAMPTZ NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_events_uetr ON payment_events(uetr)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_events_msg_id ON payment_events(msg_id)")
+    conn.commit()
+
+
+def _write_events(conn, messages):
+    """Bulk-upsert all events from the manifest messages list."""
+    rows = []
+    for msg in messages:
+        for evt in msg.get("events", []):
+            rows.append({
+                **evt,
+                "msg_id": msg["msg_id"],
+            })
+    if not rows:
+        return
+    with conn.cursor() as cur:
+        for row in rows:
+            cur.execute("""
+                INSERT INTO payment_events
+                    (event_id, uetr, msg_id, event_type, status_code,
+                     source_system, actor, detail, occurred_at)
+                VALUES
+                    (%(event_id)s, %(uetr)s, %(msg_id)s, %(event_type)s, %(status_code)s,
+                     %(source_system)s, %(actor)s, %(detail)s, %(occurred_at)s)
+                ON CONFLICT (event_id) DO NOTHING
+            """, row)
+    conn.commit()
 
 app = FastAPI(title="PayInvestigator")
 
@@ -38,6 +105,7 @@ class SeedRequest(BaseModel):
     error_rate: float = 0.3
     seed: Optional[int] = None
     error_codes: Optional[list[str]] = None
+    stuck_rate: float = 0.0
 
 
 @app.post("/api/seed")
@@ -51,6 +119,7 @@ def seed(req: SeedRequest):
         seed=req.seed,
         error_codes=req.error_codes or None,
         write_files=False,
+        stuck_rate=req.stuck_rate,
     )
 
     s3 = boto3.client("s3")
@@ -70,14 +139,28 @@ def seed(req: SeedRequest):
         uploaded.append({
             "file": msg["file"],
             "s3_key": key,
+            "uetr": msg["uetr"],
             "is_faulty": msg["is_faulty"],
+            "is_stuck": msg.get("is_stuck", False),
             "errors": msg["errors"],
+            "events": msg.get("events", []),
         })
+
+    conn = _get_db()
+    events_written = 0
+    if conn:
+        try:
+            _write_events(conn, manifest["messages"])
+            events_written = sum(len(m.get("events", [])) for m in manifest["messages"])
+        except Exception as exc:
+            logger.warning("Event write failed (non-fatal): %s", exc)
 
     return {
         "run_id": run_id,
         "count": len(uploaded),
         "faulty": sum(1 for m in uploaded if m["is_faulty"]),
+        "stuck": sum(1 for m in uploaded if m["is_stuck"]),
+        "events_written": events_written,
         "s3_prefix": f"s3://{S3_BUCKET}/{prefix}",
         "messages": uploaded,
     }
