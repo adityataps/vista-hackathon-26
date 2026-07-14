@@ -1,0 +1,74 @@
+# Error catalog for the pacs.008 generator (Use Case A - SWIFT Exceptions).
+# ALL errors keep the message XSD-valid (CBPR+ SR2025); they are BUSINESS errors
+# that downstream systems / the investigation agent must detect.
+# 'injector' must match a function registered in pacs008_generator/errors.py.
+errors:
+  - code: IBAN_INVALID_CHECKSUM
+    title: "IBAN Pruefziffer ungueltig"
+    category: account_identifier
+    severity: high
+    injector: iban_invalid_checksum
+    description: "CdtrAcct IBAN mit falscher Mod-97 Pruefziffer (Format bleibt gueltig)."
+
+  - code: IBAN_WRONG_LENGTH
+    title: "IBAN Laenge falsch fuer Laendercode"
+    category: account_identifier
+    severity: high
+    injector: iban_wrong_length
+    description: "CdtrAcct IBAN um 2 Zeichen gekuerzt - laenderspezifische Laenge verletzt."
+
+  - code: BIC_IBAN_COUNTRY_MISMATCH
+    title: "BIC/IBAN Laender-Mismatch"
+    category: account_identifier
+    severity: high
+    injector: bic_iban_country_mismatch
+    description: "CdtrAgt BIC-Land stimmt nicht mit dem Land der Creditor-IBAN ueberein."
+
+  - code: BIC_UNKNOWN
+    title: "BIC unbekannt/inaktiv"
+    category: routing
+    severity: high
+    injector: bic_unknown
+    description: "CdtrAgt BIC ist formatgueltig, aber nicht im BIC-Verzeichnis (Fantasie-BIC)."
+
+  - code: BENEFICIARY_NAME_INCOMPLETE
+    title: "Beneficiary-Name unvollstaendig"
+    category: beneficiary_data
+    severity: medium
+    injector: beneficiary_name_incomplete
+    description: "Cdtr Name auf Initialen/Fragment gekuerzt - Name-Account-Pruefung schlaegt fehl."
+
+  - code: ADDRESS_INCOMPLETE
+    title: "Beneficiary-Adresse unvollstaendig"
+    category: beneficiary_data
+    severity: medium
+    injector: address_incomplete
+    description: "Cdtr Adresse nur mit Land, ohne Strasse/Ort - Compliance-Anforderung verletzt."
+
+  - code: DUPLICATE_UETR
+    title: "Doppelte UETR (Duplikat-Verdacht)"
+    category: duplicate
+    severity: high
+    injector: duplicate_uetr
+    description: "UETR einer frueheren Meldung im selben Batch wiederverwendet."
+
+  - code: XCHG_RATE_INCONSISTENT
+    title: "InstdAmt/XchgRate inkonsistent"
+    category: fx
+    severity: medium
+    injector: xchg_rate_inconsistent
+    description: "InstdAmt (Fremdwaehrung) * XchgRate weicht deutlich vom IntrBkSttlmAmt ab."
+
+  - code: SANCTIONS_NAME_HIT
+    title: "Sanctions-Screening-Treffer (Name)"
+    category: compliance
+    severity: high
+    injector: sanctions_name_hit
+    description: "Cdtr Name entspricht einem Eintrag der (fiktiven) Watchlist - Screening-Hit."
+
+  - code: ACCOUNT_CLOSED
+    title: "Beneficiary-Konto geschlossen (UTAP)"
+    category: beneficiary_data
+    severity: high
+    injector: account_closed
+    description: "Gueltige IBAN, aber Konto in Referenzdaten als geschlossen markiert - Unable to Apply."

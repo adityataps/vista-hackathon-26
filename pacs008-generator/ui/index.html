@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>pacs.008 CBPR+ Generator — Vista Hackathon</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0;
+          --mut:#94a3b8; --acc:#38bdf8; --ok:#4ade80; --bad:#f87171; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--txt);
+         font:14px/1.5 -apple-system,'Segoe UI',sans-serif; padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:var(--mut); margin-bottom:20px; font-size:13px; }
+  .layout { display:grid; grid-template-columns:340px 1fr; gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line);
+          border-radius:10px; padding:16px; }
+  label { display:block; color:var(--mut); font-size:12px; margin:10px 0 3px; }
+  input[type=number] { width:100%; background:var(--bg); color:var(--txt);
+          border:1px solid var(--line); border-radius:6px; padding:7px; }
+  .errlist { max-height:220px; overflow:auto; border:1px solid var(--line);
+          border-radius:6px; padding:8px; margin-top:4px; }
+  .errlist label { display:flex; gap:6px; align-items:center; margin:3px 0;
+          color:var(--txt); font-size:12px; cursor:pointer; }
+  button { background:var(--acc); color:#082f49; border:0; border-radius:6px;
+          padding:10px 16px; font-weight:700; cursor:pointer; margin-top:14px; }
+  button.sec { background:transparent; color:var(--acc);
+          border:1px solid var(--acc); font-weight:500; margin-left:8px; }
+  button:disabled { opacity:.5; cursor:wait; }
+  .chips { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  .chip { padding:4px 12px; border-radius:99px; font-size:12px; font-weight:600;
+          background:var(--bg); border:1px solid var(--line); }
+  .chip.ok { color:var(--ok); } .chip.bad { color:var(--bad); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:var(--mut); font-size:11px; text-transform:uppercase;
+       padding:6px 8px; border-bottom:1px solid var(--line); }
+  td { padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr.row { cursor:pointer; } tr.row:hover { background:#26334a; }
+  .st-ok { color:var(--ok); font-weight:700; }
+  .st-bad { color:var(--bad); font-weight:700; }
+  .code { font-family:ui-monospace,monospace; font-size:12px; }
+  .detail { color:var(--mut); font-size:12px; }
+  #xmlpane { display:none; margin-top:16px; }
+  #xmlpane pre { background:#0b1220; border:1px solid var(--line);
+       border-radius:8px; padding:12px; overflow:auto; max-height:420px;
+       font-size:11.5px; color:#bae6fd; white-space:pre-wrap; word-break:break-all; }
+  .pathline { color:var(--mut); font-size:12px; margin-top:10px;
+       font-family:ui-monospace,monospace; word-break:break-all; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+</style>
+</head>
+<body>
+<h1>pacs.008 CBPR+ Generator</h1>
+<div class="sub">Use Case A — SWIFT Exceptions &amp; Investigations · alle Meldungen XSD-valide (CBPR+ SR2025) · Fehler = Business-Fehler</div>
+<div class="layout">
+  <div class="card">
+    <div class="row2">
+      <div><label>Anzahl Meldungen</label>
+        <input type="number" id="count" value="20" min="1" max="500"></div>
+      <div><label>Fehlerquote %</label>
+        <input type="number" id="rate" value="30" min="0" max="100"></div>
+    </div>
+    <div class="row2">
+      <div><label>Fehlerhaft absolut (optional)</label>
+        <input type="number" id="faulty" placeholder="überschreibt Quote"></div>
+      <div><label>Seed (optional)</label>
+        <input type="number" id="seed" placeholder="z.B. 42"></div>
+    </div>
+    <label>Fehlertypen (keine Auswahl = alle)</label>
+    <div class="errlist" id="errlist">lade Katalog…</div>
+    <button id="gen" onclick="generate()">Meldungen generieren</button>
+    <button class="sec" id="openbtn" onclick="openFolder()" style="display:none">Output-Ordner öffnen</button>
+    <div class="pathline" id="outpath"></div>
+  </div>
+  <div class="card">
+    <div class="chips" id="chips"></div>
+    <table id="tbl" style="display:none">
+      <thead><tr><th>Datei</th><th>Status</th><th>Fehler</th><th>Detail</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div id="empty" style="color:var(--mut)">Noch kein Lauf — Parameter links setzen und generieren.</div>
+    <div id="xmlpane"><b id="xmltitle"></b><pre id="xml"></pre></div>
+  </div>
+</div>
+<script>
+let runId = null, messages = [];
+
+async function loadCatalog() {
+  const cat = await (await fetch('/errors')).json();
+  document.getElementById('errlist').innerHTML = cat.map(e =>
+    '<label><input type="checkbox" value="' + e.code + '"> ' +
+    '<span class="code">' + e.code + '</span>&nbsp;— ' + e.title + '</label>').join('');
+}
+
+async function generate() {
+  const btn = document.getElementById('gen');
+  btn.disabled = true; btn.textContent = 'generiere…';
+  const codes = [...document.querySelectorAll('#errlist input:checked')].map(c => c.value);
+  const body = {
+    count: +document.getElementById('count').value,
+    error_rate: (+document.getElementById('rate').value) / 100,
+    include_xml: true, write_files: true
+  };
+  const f = document.getElementById('faulty').value;
+  if (f !== '') body.faulty = +f;
+  const s = document.getElementById('seed').value;
+  if (s !== '') body.seed = +s;
+  if (codes.length) body.error_codes = codes;
+  try {
+    const r = await fetch('/generate', {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    render(await r.json());
+  } catch (e) { alert('Fehler: ' + e.message); }
+  btn.disabled = false; btn.textContent = 'Meldungen generieren';
+}
+
+function render(m) {
+  runId = m.run_id; messages = m.messages;
+  const bad = messages.filter(x => x.is_faulty);
+  document.getElementById('chips').innerHTML =
+    '<span class="chip">Lauf ' + m.run_id + '</span>' +
+    '<span class="chip">' + messages.length + ' Meldungen</span>' +
+    '<span class="chip ok">' + (messages.length - bad.length) + ' korrekt</span>' +
+    '<span class="chip bad">' + bad.length + ' fehlerhaft</span>';
+  document.getElementById('tbody').innerHTML = messages.map(function (x, i) {
+    const e = x.errors[0] || {};
+    return '<tr class="row" onclick="showXml(' + i + ')">' +
+      '<td class="code">' + x.file + '</td>' +
+      '<td class="' + (x.is_faulty ? 'st-bad' : 'st-ok') + '">' +
+      (x.is_faulty ? 'FAULTY' : 'OK') + '</td>' +
+      '<td class="code">' + (e.code || '') + '</td>' +
+      '<td class="detail">' + (e.detail || '') + '</td></tr>';
+  }).join('');
+  document.getElementById('tbl').style.display = 'table';
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('xmlpane').style.display = 'none';
+  document.getElementById('openbtn').style.display = 'inline-block';
+  document.getElementById('outpath').textContent = m.output_dir || '';
+}
+
+function showXml(i) {
+  const x = messages[i];
+  document.getElementById('xmltitle').textContent = x.file;
+  document.getElementById('xml').textContent = x.xml || '(XML nicht geladen)';
+  document.getElementById('xmlpane').style.display = 'block';
+}
+
+async function openFolder() {
+  if (runId) await fetch('/runs/' + runId + '/open', {method: 'POST'});
+}
+
+loadCatalog();
+</script>
+</body>
+</html>
