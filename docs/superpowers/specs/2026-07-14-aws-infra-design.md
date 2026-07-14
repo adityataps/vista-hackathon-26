@@ -201,9 +201,16 @@ ec2:DescribeInstances        → *
 
 ---
 
-## Open Items
+## Confirmed Values
 
-- Confirm GitHub repo name (used in OIDC trust policy subject)
-- Cloudflare Zone ID and API token needed as Terraform variables
-- SSH public key for `aws_key_pair` — generate locally, add public key to `terraform.tfvars`
-- Bedrock model access for `claude-sonnet-4-6` must be enabled in `us-west-2` console before `terraform apply`
+| Item | Value |
+|---|---|
+| GitHub repo | `adityataps/vista-hackathon-26` |
+| Cloudflare Zone ID | `9a2b68936aec95fc2ad33a144cec981a` |
+| Bedrock model access | Enabled in `us-west-2` ✓ |
+
+## Remaining Pre-Apply Steps
+
+- Generate SSH keypair locally; add public key to `terraform.tfvars` as `ssh_public_key`
+- Add Cloudflare API token to `terraform.tfvars` as `cloudflare_api_token` (needs `Zone:DNS:Edit` permission for `tapshalkar.com`)
+- Set Cloudflare SSL/TLS mode to **Flexible** in the dashboard for `tapshalkar.com` before first deploy
