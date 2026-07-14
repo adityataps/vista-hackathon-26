@@ -17,9 +17,9 @@ output "s3_bucket_name" {
 }
 
 # IAM outputs (Task 5)
-# output "github_actions_role_arn" {
-#   value = aws_iam_role.github_actions.arn
-# }
+output "github_actions_role_arn" {
+  value = aws_iam_role.github_actions.arn
+}
 
 # ECS outputs (Task 8)
 # output "ecs_cluster_name" {
