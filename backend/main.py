@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 import boto3
@@ -54,7 +55,8 @@ def seed(req: SeedRequest):
 
     s3 = boto3.client("s3")
     run_id = manifest["run_id"]
-    prefix = f"payments/{run_id}/"
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    prefix = f"payments/{ts}-{run_id}/"
 
     uploaded = []
     for msg in manifest["messages"]:
