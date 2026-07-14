@@ -20,6 +20,36 @@ resource "aws_iam_role_policy_attachment" "task_execution_managed" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+data "aws_iam_policy_document" "task_execution" {
+  statement {
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchGetImage",
+    ]
+    resources = ["arn:aws:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/payinvestigator-*"]
+  }
+
+  statement {
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+    ]
+    resources = ["arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/payinvestigator-*:*"]
+  }
+}
+
+resource "aws_iam_role_policy" "task_execution" {
+  name   = "${var.app_name}-task-execution"
+  role   = aws_iam_role.task_execution.id
+  policy = data.aws_iam_policy_document.task_execution.json
+}
+
 # ── Backend task role (Bedrock + S3) ─────────────────────────────────────────
 resource "aws_iam_role" "backend_task" {
   name               = "${var.app_name}-backend-task"
