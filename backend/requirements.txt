@@ -4,3 +4,5 @@ boto3
 anthropic
 langgraph
 langchain-anthropic
+xmlschema>=3.0
+PyYAML>=6.0
