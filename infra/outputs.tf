@@ -21,7 +21,7 @@ output "github_actions_role_arn" {
   value = aws_iam_role.github_actions.arn
 }
 
-# ECS outputs (Task 8)
-# output "ecs_cluster_name" {
-#   value = aws_ecs_cluster.main.name
-# }
+# ECS outputs (Task 9)
+output "ecs_cluster_name" {
+  value = aws_ecs_cluster.main.name
+}
