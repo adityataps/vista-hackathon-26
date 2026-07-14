@@ -1,0 +1,127 @@
+# Error-Wissensbasis fuer den AI-Analyse-Agenten (Use Case A)
+# Gegenstueck zu error_catalog.yaml (Generator): gleiche Codes, aber aus
+# DETEKTIONS-Sicht - wo pruefen, wie pruefen, welche Referenzdaten, was tun.
+# Ground Truth zum Benchmarken liefert manifest.json des Generators.
+version: 1.0
+scope: "SWIFT CBPR+ pacs.008.001.08 (SR2025), nur Business-Fehler (XML ist XSD-valide)"
+reference_data_needed:
+  bic_directory: "Gueltige/aktive BICs (Demo: AGENTS-Liste in datapool.py)"
+  iban_registry: "IBAN-Laengen und Formate pro Land (ISO 13616)"
+  watchlist: "Sanktionslisten-Namen (Demo: manifest.json reference_data.watchlist)"
+  account_status: "Kontostatus offen/geschlossen (Demo: manifest.json reference_data.closed_accounts)"
+  uetr_history: "Bereits verarbeitete UETRs (Demo: alle Meldungen des Batches)"
+
+errors:
+  - code: IBAN_INVALID_CHECKSUM
+    title: "IBAN Pruefziffer ungueltig"
+    category: account_identifier
+    severity: high
+    check_fields: ["CdtTrfTxInf/CdtrAcct/Id/IBAN"]
+    detection: "Mod-97-Pruefung nach ISO 7064: IBAN umstellen (BBAN+Laendercode+Pruefziffer), alphanumerisch zu Zahl expandieren, mod 97 muss 1 ergeben."
+    reference_data: []
+    investigation_type: "UTAP (Unable to Apply)"
+    suggested_action: "Repair: korrekte IBAN beim Auftraggeber/DbtrAgt erfragen; kein Auto-Fix moeglich (Original unbekannt)."
+    auto_repairable: false
+
+  - code: IBAN_WRONG_LENGTH
+    title: "IBAN Laenge falsch fuer Laendercode"
+    category: account_identifier
+    severity: high
+    check_fields: ["CdtTrfTxInf/CdtrAcct/Id/IBAN"]
+    detection: "Laenge der IBAN gegen laenderspezifische Soll-Laenge pruefen (DE=22, FR=27, GB=22, CH=21, NL=18, ...)."
+    reference_data: ["iban_registry"]
+    investigation_type: "UTAP"
+    suggested_action: "Repair: IBAN nachfordern; haeufig Tippfehler/abgeschnittene Erfassung."
+    auto_repairable: false
+
+  - code: BIC_IBAN_COUNTRY_MISMATCH
+    title: "BIC/IBAN Laender-Mismatch"
+    category: account_identifier
+    severity: high
+    check_fields: ["CdtTrfTxInf/CdtrAgt/FinInstnId/BICFI", "CdtTrfTxInf/CdtrAcct/Id/IBAN"]
+    detection: "BIC-Position 5-6 (Laendercode) mit IBAN-Position 1-2 vergleichen; Abweichung = Mismatch. Achtung: legitime Ausnahmen moeglich (z.B. Filial-BICs) -> als Verdacht flaggen."
+    reference_data: ["bic_directory"]
+    investigation_type: "UTAP / Routing-Klaerung"
+    suggested_action: "Pruefen ob CdtrAgt oder IBAN falsch; korrektes Agent-Institut ermitteln."
+    auto_repairable: partially
+
+  - code: BIC_UNKNOWN
+    title: "BIC unbekannt/inaktiv"
+    category: routing
+    severity: high
+    check_fields: ["CdtTrfTxInf/CdtrAgt/FinInstnId/BICFI", "alle Agent-BICs"]
+    detection: "Lookup gegen BIC-Verzeichnis; formatgueltig aber nicht gelistet/inaktiv = Treffer."
+    reference_data: ["bic_directory"]
+    investigation_type: "Routing / Return moeglich"
+    suggested_action: "Korrekten BIC ermitteln (Name/Adresse des Instituts als Suchbasis); sonst Return pacs.004."
+    auto_repairable: partially
+
+  - code: BENEFICIARY_NAME_INCOMPLETE
+    title: "Beneficiary-Name unvollstaendig"
+    category: beneficiary_data
+    severity: medium
+    check_fields: ["CdtTrfTxInf/Cdtr/Nm"]
+    detection: "Heuristik: Laenge < 5, nur Initialen (Muster '^[A-Z]\\.$'), einzelnes Token, generische Platzhalter (UNKNOWN, N/A)."
+    reference_data: []
+    investigation_type: "UTAP (staerkster Demo-Fall)"
+    suggested_action: "camt.110 RQST/UTAP an DbtrAgt: vollstaendigen Namen anfordern; Name-Konto-Abgleich beim CdtrAgt scheitert sonst."
+    auto_repairable: false
+
+  - code: ADDRESS_INCOMPLETE
+    title: "Beneficiary-Adresse unvollstaendig"
+    category: beneficiary_data
+    severity: medium
+    check_fields: ["CdtTrfTxInf/Cdtr/PstlAdr"]
+    detection: "PstlAdr enthaelt nur Ctry (kein TwnNm/StrtNm/AdrLine) - verletzt CBPR+-Erwartung Stadt+Land; ab SR2026 strenger."
+    reference_data: []
+    investigation_type: "RQFI (Compliance) / UTAP"
+    suggested_action: "Vollstaendige strukturierte Adresse nachfordern (FATF-Empfehlung 16 / Travel Rule)."
+    auto_repairable: false
+
+  - code: DUPLICATE_UETR
+    title: "Doppelte UETR (Duplikat-Verdacht)"
+    category: duplicate
+    severity: high
+    check_fields: ["CdtTrfTxInf/PmtId/UETR"]
+    detection: "UETR gegen Historie bereits verarbeiteter Meldungen pruefen; Treffer = moegliche Doppelverarbeitung."
+    reference_data: ["uetr_history"]
+    investigation_type: "Duplikat-Klaerung / ggf. Recall camt.056"
+    suggested_action: "Zahlung anhalten, Original vergleichen (Betrag/Parteien identisch? -> echtes Duplikat, Recall); UETR nie wiederverwenden."
+    auto_repairable: false
+
+  - code: XCHG_RATE_INCONSISTENT
+    title: "InstdAmt/XchgRate inkonsistent"
+    category: fx
+    severity: medium
+    check_fields: ["CdtTrfTxInf/InstdAmt", "CdtTrfTxInf/XchgRate", "CdtTrfTxInf/IntrBkSttlmAmt"]
+    detection: "Wenn InstdAmt-Waehrung != IntrBkSttlmAmt-Waehrung: |InstdAmt * XchgRate - IntrBkSttlmAmt| / IntrBkSttlmAmt > Toleranz (z.B. 1%) = inkonsistent."
+    reference_data: []
+    investigation_type: "Klaerung mit InstgAgt"
+    suggested_action: "Korrekten Kurs/Betrag klaeren; Rundungsregeln und Kursdatum beruecksichtigen."
+    auto_repairable: partially
+
+  - code: SANCTIONS_NAME_HIT
+    title: "Sanctions-Screening-Treffer (Name)"
+    category: compliance
+    severity: high
+    check_fields: ["CdtTrfTxInf/Cdtr/Nm", "CdtTrfTxInf/Dbtr/Nm"]
+    detection: "Fuzzy-Match (z.B. Jaro-Winkler/Token-Match) der Parteinamen gegen Watchlist; Score-Schwelle fuer Hit vs. Falsch-Positiv."
+    reference_data: ["watchlist"]
+    investigation_type: "RQFI SANC (Request for Information - Sanctions)"
+    suggested_action: "Zahlung sperren, Compliance eskalieren; camt.110 RQFI fuer Zusatzinfos; NIE automatisch freigeben."
+    auto_repairable: false
+
+  - code: ACCOUNT_CLOSED
+    title: "Beneficiary-Konto geschlossen"
+    category: beneficiary_data
+    severity: high
+    check_fields: ["CdtTrfTxInf/CdtrAcct/Id/IBAN"]
+    detection: "Lookup gegen Kontostatus-Referenz (nur CdtrAgt-seitig moeglich); IBAN formal gueltig."
+    reference_data: ["account_status"]
+    investigation_type: "UTAP -> Return pacs.004"
+    suggested_action: "camt.110 UTAP: neue Kontoverbindung anfordern oder Zahlung returnieren."
+    auto_repairable: false
+
+# Hinweis fuer den Agenten: Meldungen koennen theoretisch mehrere Fehler tragen
+# (Generator injiziert aktuell genau einen pro fehlerhafter Meldung).
+# Empfohlener Analyse-Output pro Meldung: [{code, confidence, evidence(felder+werte), suggested_action}]
