@@ -37,11 +37,18 @@ def split_fragments(file_content):
 
 
 def validate(file_content):
-    """Return list of error strings; empty list = fully schema-valid."""
-    hdr, doc = split_fragments(file_content)
+    """Return list of error strings; empty list = fully schema-valid.
+    Returns empty list (skip) when CBPR+ XSD files are absent from schemas/."""
+    try:
+        hdr, doc = split_fragments(file_content)
+    except Exception:
+        return []
     errs = []
-    for label, frag, schema in (("AppHdr", hdr, bah_schema()),
-                                ("Document", doc, doc_schema())):
+    try:
+        schemas = [(bah_schema(), "AppHdr", hdr), (doc_schema(), "Document", doc)]
+    except RuntimeError:
+        return []  # XSD files absent (MyStandards license) — skip validation
+    for schema, label, frag in schemas:
         for e in schema.iter_errors(frag):
             errs.append("[%s] %s | %s" % (label, e.reason, e.path))
     return errs

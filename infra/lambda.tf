@@ -64,7 +64,7 @@ resource "aws_lambda_function" "payment_ingest" {
   function_name = "${var.app_name}-payment-xml-ingest"
   role          = aws_iam_role.lambda_ingest.arn
   package_type  = "Image"
-  image_uri     = "public.ecr.aws/lambda/python:3.12"
+  image_uri     = "${aws_ecr_repository.ingest.repository_url}:latest"
   timeout       = 60
   memory_size   = 512
 
