@@ -106,22 +106,45 @@ Payment Lifecycle Event Stream (continuous)
 3. Rail degradation — a payment rail (e.g., SEPA Instant) showing elevated processing times
 4. Cut-off risk — payment approaching correspondent cut-off with no confirmation yet
 
+
+TRACK 3 — CONVERSATIONAL (Report Q&A Chatbot)
+═══════════════════════════════════════════════════════
+After Track 1 or Track 2 produces an investigation report, the analyst
+can ask follow-up questions in natural language. The chatbot has the
+report as context and can call the same tools to fetch additional detail.
+
+Investigation Report (from Track 1 or 2)
+      │
+      ▼
+┌─────────────────────┐
+│  Report Q&A Agent   │  ← Multi-turn conversational agent
+│                     │    System prompt = investigation report
+│                     │    LangGraph checkpointing = conversation memory
+│                     │    Tool access = same tool set as source track
+└─────────────────────┘
+
+Example interactions:
+  Analyst: "Why did you recommend holding this payment?"
+  Analyst: "What's the history of delays with Deutsche Bank?"
+  Analyst: "If I approve this, what happens to the IBAN correction?"
+  Analyst: "Show me other payments from the same sender this week"
+
 ---
 
 ## Tech Stack
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| AI / LLM | Claude claude-sonnet-4-6 via AWS Bedrock | Best tool use + reasoning; keeps everything in AWS |
-| Agent framework | **LangGraph** (Python) | Graph-based multi-agent orchestration, built-in state management, parallel node execution |
-| Tool connectivity | LangGraph tool nodes + LangChain tools | Native integration with LangGraph; MCP wrapper optional on top |
+| AI / LLM | Claude claude-sonnet-4-6 via **AWS Bedrock** (`ChatBedrock`) | AWS-native LLM; best tool use + reasoning |
+| Agent framework | **LangGraph** (Python) | Graph-based multi-agent orchestration, built-in state + checkpointing, parallel node execution |
+| Tool connectivity | LangGraph tool nodes + LangChain tools | Native integration; `@tool` decorator, bind to `ChatBedrock` |
 | Backend | FastAPI (Python) | Fast to stand up, clean REST endpoints for frontend |
 | Data store | SQLite (seeded from S3 on startup) | Simple for mock data; S3 as source of truth; no EFS complexity |
 | Frontend | React + Recharts | Dashboard + investigation UI |
 | Containerisation | Docker | Single image for backend; deployed via Fargate |
 | CI/CD | GitHub Actions → ECR → ECS Fargate | Push-to-deploy; Docker build + push + task definition update |
-| Cloud | AWS (ECS Fargate, ECR, ALB, S3, Bedrock, ACM, Route 53) | Full AWS stack |
-| DNS / Hosting | Subdomain of your domain → ALB | HTTPS via ACM; Route 53 or registrar CNAME |
+| Cloud | AWS (ECS Fargate, ECR, ALB, S3, Bedrock, ACM) | Full AWS stack; no Route 53 needed |
+| DNS / Hosting | `vistahack26.tapshalkar.com` (Cloudflare) → ALB | ACM cert on ALB; Cloudflare DNS-only CNAME |
 | Repo | GitHub | Judges review commit history; source of CI/CD triggers |
 
 ---
@@ -318,7 +341,7 @@ The "before" view — shows the scale of the problem and system health at a glan
 ```
 
 ### View 2 — Exception Investigation Queue
-Live feed of exceptions. Click any row to trigger the agent investigation and watch reasoning stream in real time.
+Live feed of exceptions. Click any row to trigger the agent investigation and watch reasoning stream in real time. Once a report is produced, a chatbot panel opens below for follow-up questions.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -337,6 +360,25 @@ Live feed of exceptions. Click any row to trigger the agent investigation and wa
   > Technical Diagnosis: IBAN GB29NWBK60161331926819 fails mod-97 check
   > Resolution Agent: Suggested correction GB29NWBK60161331926820
   > ⏳ Awaiting human approval...          [Approve] [Reject]
+
+──────────────────────────────────────────────────────────────
+  Ask a question about this investigation
+  ┌────────────────────────────────────────────────────────┐
+  │ Why did you flag this IBAN specifically?               │
+  └────────────────────────────────────────────────────────┘
+  🤖 The IBAN GB29NWBK60161331926819 fails the ISO 7064
+     mod-97-10 check digit algorithm. The last two digits
+     (19) should be (20) based on the preceding sort code
+     and account number. This is a data entry error —
+     the corrected IBAN is valid and the receiving bank
+     (NatWest, UK) is active in our directory.
+
+  ┌────────────────────────────────────────────────────────┐
+  │ Are there other payments to this receiver this week?   │
+  └────────────────────────────────────────────────────────┘
+  🤖 [calls get_payment_record + filters by receiver_bic]
+     Found 3 other payments to NatWest this week — all
+     settled successfully with the corrected IBAN format.
 ```
 
 ### View 3 — Bottleneck Monitor
@@ -469,6 +511,35 @@ In-flight payment health, live alerts, and correspondent degradation heatmap.
 | `notify_ops_team(alert_id)` | Sends alert to ops queue |
 | `get_escalation_contacts(bic, corridor)` | Who to contact at the correspondent / internally |
 | `log_bottleneck_incident(incident_details)` | Records incident for audit trail and future pattern learning |
+
+---
+
+### Track 3 — Report Q&A Chatbot
+
+#### Report Q&A Agent
+Conversational agent. System prompt is seeded with the full investigation report from Track 1 or 2. LangGraph checkpointing persists conversation history across turns. Inherits tools from whichever track produced the report.
+
+| Tool | Description |
+|---|---|
+| `get_payment_record(tx_id)` | Fetch additional payment detail mid-conversation |
+| `get_payment_lifecycle(tx_id)` | Pull full step timeline if analyst asks about timing |
+| `get_correspondent_stats(bic)` | Look up correspondent history on demand |
+| `search_payments(filters)` | Ad-hoc search — "show me other payments from this sender" |
+| `get_resolution_history(tx_id)` | Prior cases involving same entity or error type |
+| `get_sanctions_entry(entity_name)` | Deep-dive on a flagged entity during conversation |
+
+**LangGraph implementation note:** use `MemorySaver` checkpointer with a `thread_id` per investigation report so each report gets its own isolated conversation context. Switching between reports in the UI switches `thread_id`.
+
+```python
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_aws import ChatBedrock
+
+llm = ChatBedrock(model_id="anthropic.claude-sonnet-4-6", region_name="us-east-1")
+checkpointer = MemorySaver()
+# graph = build_qa_graph(llm, tools)
+# graph.compile(checkpointer=checkpointer)
+# config = {"configurable": {"thread_id": report_id}}
+```
 
 ---
 
