@@ -57,6 +57,22 @@ def _ensure_schema(conn):
                 ingested_at     TIMESTAMP DEFAULT NOW()
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS payment_events (
+                id            SERIAL PRIMARY KEY,
+                event_id      TEXT UNIQUE NOT NULL,
+                uetr          TEXT NOT NULL,
+                msg_id        TEXT,
+                event_type    TEXT NOT NULL,
+                status_code   TEXT,
+                source_system TEXT,
+                actor         TEXT,
+                detail        TEXT,
+                occurred_at   TIMESTAMPTZ NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_events_uetr ON payment_events(uetr)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_events_msg_id ON payment_events(msg_id)")
     conn.commit()
 
 

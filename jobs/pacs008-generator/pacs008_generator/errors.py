@@ -5,6 +5,8 @@ import yaml
 
 from . import datapool
 
+WATCHLIST_NAMES = ["Orion Global Resources FZE", "Kestrel Maritime Holdings Ltd"]
+
 _REGISTRY = {}
 
 
@@ -101,3 +103,19 @@ def _fx_inconsistent(tx, ctx, rng):
     tx["xchg_rate"] = "0.5"  # implies settlement ~= half of instructed -> inconsistent
     return ("InstdAmt %s %s * XchgRate 0.5 != IntrBkSttlmAmt %s %s"
             % (tx["instd_amt"], tx["instd_ccy"], tx["amt"], tx["ccy"]))
+
+
+@injector("sanctions_name_hit")
+def _sanctions(tx, ctx, rng):
+    hit = rng.choice(WATCHLIST_NAMES)
+    tx["cdtr"]["nm"] = hit
+    return "Cdtr Name '%s' matcht Watchlist-Eintrag (OFAC SDN)" % hit
+
+
+@injector("account_closed")
+def _acct_closed(tx, ctx, rng):
+    p = tx["cdtr"]
+    if not p.get("iban"):
+        p.update(datapool.make_party(rng, "CH"))
+    ctx.setdefault("closed_accounts", []).append(p["iban"])
+    return "Konto %s ist in Referenzdaten als GESCHLOSSEN markiert (UTAP)" % p["iban"]

@@ -20,7 +20,8 @@ resource "aws_ecs_task_definition" "backend" {
     }]
     environment = [
       { name = "AWS_DEFAULT_REGION", value = var.region },
-      { name = "S3_BUCKET", value = aws_s3_bucket.mockdata.bucket },
+      { name = "S3_BUCKET",          value = aws_s3_bucket.mockdata.bucket },
+      { name = "DATABASE_URL",        value = "postgresql://${local.db_user}:${random_password.db.result}@${aws_db_instance.main.endpoint}/${local.db_name}" },
     ]
     logConfiguration = {
       logDriver = "awslogs"

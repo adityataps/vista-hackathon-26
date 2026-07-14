@@ -16,7 +16,7 @@ import os
 import random
 import uuid
 
-from . import builder, datapool, errors, validator
+from . import builder, datapool, errors, log_generator, validator
 
 
 def _make_run_id(rng, seed):
@@ -79,10 +79,14 @@ def _self_check(manifest):
 
 def generate_batch(count=10, error_rate=0.3, faulty=None, seed=None,
                    error_codes=None, out_dir="output", catalog_path=None,
-                   write_files=True, run_id=None):
+                   write_files=True, run_id=None, stuck_rate=0.0):
     """Generate `count` messages. Faulty messages: either `faulty` (absolute
     number) or `error_rate` (fraction 0..1). Returns manifest dict.
-    Every message is asserted XSD-valid and duplicate-check-free."""
+    Every message is asserted XSD-valid and duplicate-check-free.
+
+    stuck_rate: fraction of OK payments that get PROCESSING_DELAYED events
+    (no settlement confirmation, timestamps backdated 7h for bottleneck demos).
+    """
     rng = random.Random(seed)
     run_id = run_id or _make_run_id(rng, seed)
     catalog = errors.load_catalog(catalog_path)
@@ -94,7 +98,7 @@ def generate_batch(count=10, error_rate=0.3, faulty=None, seed=None,
     if not 0 <= n_bad <= count:
         raise ValueError("faulty muss zwischen 0 und count liegen")
     bad_idx = set(rng.sample(range(count), n_bad))
-    ctx = {"used_uetrs": []}
+    ctx = {"used_uetrs": [], "closed_accounts": []}
     biz_keys = set()
     manifest = {"created": datetime.datetime.now().isoformat(),
                 "run_id": run_id, "seed": seed, "count": count,
@@ -102,6 +106,11 @@ def generate_batch(count=10, error_rate=0.3, faulty=None, seed=None,
                 "schema": "CBPR+ SR2025 pacs.008.001.08", "messages": []}
     if write_files:
         os.makedirs(out_dir, exist_ok=True)
+
+    ok_indices = [j for j in range(count) if j not in bad_idx]
+    n_stuck = round(len(ok_indices) * stuck_rate)
+    stuck_idx = set(ok_indices[:n_stuck])
+
     for i in range(count):
         tx = _base_tx(rng, i + 1, run_id, biz_keys)
         entry = {"file": None, "msg_id": tx["msg_id"], "uetr": tx["uetr"],
@@ -126,10 +135,23 @@ def generate_batch(count=10, error_rate=0.3, faulty=None, seed=None,
                                  % (tx["msg_id"], verrs))
         entry["file"] = "%03d_pacs008_%s.xml" % (i + 1, status)
         entry["xml"] = content
+
+        # Generate processing event chain — uses independent per-message RNG
+        # so it never perturbs the main batch RNG state (keeps seed determinism).
+        backdated = 7 if i in stuck_idx else 0
+        evt_seed = (seed if seed is not None else 0xDEADBEEF) ^ ((i + 1) * 0x6B8B4567)
+        evt_rng = random.Random(evt_seed & 0xFFFFFFFF)
+        entry["events"] = log_generator.generate_events(
+            entry["msg_id"], entry["uetr"], entry["errors"], tx, evt_rng,
+            backdated_hours=backdated,
+        )
+        entry["is_stuck"] = (i in stuck_idx)
+
         if write_files:
             with open(os.path.join(out_dir, entry["file"]), "w", encoding="utf-8") as f:
                 f.write(content)
         manifest["messages"].append(entry)
+
     _self_check(manifest)
     if write_files:
         slim = json.loads(json.dumps(manifest))
