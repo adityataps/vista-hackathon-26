@@ -40,3 +40,9 @@ def test_check_fx_tool_inconsistent():
     result = json.loads(check_fx_tool.invoke({"instd_amt": 1000.0, "sttlm_amt": 850.0, "rate": 0.75}))
     assert result["consistent"] is False
     assert result["deviation_pct"] > 1.0
+
+
+def test_validate_iban_tool_valid():
+    result = json.loads(validate_iban_tool.invoke({"iban": "GB29NWBK60161331926819"}))
+    assert result["valid"] is True
+    assert result["errors"] == []

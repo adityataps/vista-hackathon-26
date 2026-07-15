@@ -42,6 +42,31 @@ def _ensure_schema(conn):
         cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_events_msg_id ON payment_events(msg_id)")
 
         cur.execute("""
+            CREATE TABLE IF NOT EXISTS payments (
+                id              SERIAL PRIMARY KEY,
+                s3_key          TEXT NOT NULL,
+                msg_id          TEXT UNIQUE,
+                uetr            TEXT,
+                instr_id        TEXT,
+                e2e_id          TEXT,
+                amount          NUMERIC(20, 5),
+                currency        VARCHAR(3),
+                settlement_date DATE,
+                sender_bic      TEXT,
+                receiver_bic    TEXT,
+                debtor_bic      TEXT,
+                creditor_bic    TEXT,
+                debtor_name     TEXT,
+                debtor_iban     TEXT,
+                creditor_name   TEXT,
+                creditor_iban   TEXT,
+                is_faulty       BOOLEAN DEFAULT FALSE,
+                raw_xml         TEXT,
+                ingested_at     TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS exceptions (
                 id              SERIAL PRIMARY KEY,
                 payment_id      INTEGER,
