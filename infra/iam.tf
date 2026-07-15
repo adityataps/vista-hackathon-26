@@ -67,6 +67,10 @@ data "aws_iam_policy_document" "backend_task" {
     ]
   }
   statement {
+    actions   = ["bedrock:ApplyGuardrail"]
+    resources = [aws_bedrock_guardrail.pay_investigator.guardrail_arn]
+  }
+  statement {
     actions = ["s3:GetObject", "s3:PutObject", "s3:ListBucket"]
     resources = [
       aws_s3_bucket.mockdata.arn,

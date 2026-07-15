@@ -37,3 +37,11 @@ output "rds_endpoint" {
 output "sqs_payment_ingest_url" {
   value = aws_sqs_queue.payment_ingest.url
 }
+
+output "guardrail_id" {
+  value = aws_bedrock_guardrail.pay_investigator.guardrail_id
+}
+
+output "guardrail_arn" {
+  value = aws_bedrock_guardrail.pay_investigator.guardrail_arn
+}

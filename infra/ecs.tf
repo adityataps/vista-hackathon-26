@@ -22,6 +22,8 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "AWS_DEFAULT_REGION", value = var.region },
       { name = "S3_BUCKET",          value = aws_s3_bucket.mockdata.bucket },
       { name = "DATABASE_URL",        value = "postgresql://${local.db_user}:${random_password.db.result}@${aws_db_instance.main.endpoint}/${local.db_name}" },
+      { name = "GUARDRAIL_ID",        value = aws_bedrock_guardrail.pay_investigator.guardrail_id },
+      { name = "GUARDRAIL_VERSION",   value = aws_bedrock_guardrail_version.pay_investigator.version },
     ]
     logConfiguration = {
       logDriver = "awslogs"
