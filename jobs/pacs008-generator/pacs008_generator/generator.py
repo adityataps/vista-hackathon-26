@@ -89,10 +89,10 @@ def generate_batch(count=10, error_rate=0.3, faulty=None, seed=None,
     if error_codes:
         catalog = [e for e in catalog if e["code"] in set(error_codes)]
         if not catalog:
-            raise ValueError("error_codes filtert alle Katalog-Eintraege weg")
+            raise ValueError("error_codes filters out all catalog entries")
     n_bad = faulty if faulty is not None else round(count * error_rate)
     if not 0 <= n_bad <= count:
-        raise ValueError("faulty muss zwischen 0 und count liegen")
+        raise ValueError("faulty must be between 0 and count")
     bad_idx = set(rng.sample(range(count), n_bad))
     ctx = {"used_uetrs": []}
     biz_keys = set()

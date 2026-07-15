@@ -1,60 +1,62 @@
 # Error catalog for the pacs.008 generator (Use Case A - SWIFT Exceptions).
 # ALL errors keep the message XSD-valid (CBPR+ SR2025); they are BUSINESS errors
 # that downstream systems / the investigation agent must detect.
+# Every error is detectable WITHOUT external or simulated systems - from the
+# message itself, from the batch, or via a short static ISO lookup table.
 # 'injector' must match a function registered in pacs008_generator/errors.py.
 errors:
   - code: IBAN_INVALID_CHECKSUM
-    title: "IBAN Pruefziffer ungueltig"
+    title: "IBAN check digits invalid"
     category: account_identifier
     severity: high
     injector: iban_invalid_checksum
-    description: "CdtrAcct IBAN mit falscher Mod-97 Pruefziffer (Format bleibt gueltig)."
+    description: "CdtrAcct IBAN with wrong mod-97 check digits (format stays valid)."
 
   - code: IBAN_WRONG_LENGTH
-    title: "IBAN Laenge falsch fuer Laendercode"
+    title: "IBAN length wrong for country code"
     category: account_identifier
     severity: high
     injector: iban_wrong_length
-    description: "CdtrAcct IBAN um 2 Zeichen gekuerzt - laenderspezifische Laenge verletzt."
+    description: "CdtrAcct IBAN truncated by 2 characters - violates country-specific length."
 
   - code: BIC_IBAN_COUNTRY_MISMATCH
-    title: "BIC/IBAN Laender-Mismatch"
+    title: "BIC/IBAN country mismatch"
     category: account_identifier
     severity: high
     injector: bic_iban_country_mismatch
-    description: "CdtrAgt BIC-Land stimmt nicht mit dem Land der Creditor-IBAN ueberein."
+    description: "CdtrAgt BIC country does not match the country of the creditor IBAN."
 
   - code: BIC_INVALID_COUNTRY
-    title: "BIC mit ungueltigem Laendercode"
+    title: "BIC with invalid country code"
     category: routing
     severity: high
     injector: bic_invalid_country
-    description: "CdtrAgt BIC formatgueltig, aber Position 5-6 ist kein ISO-3166-Laendercode - ohne Zusatzsystem kalkulierbar."
+    description: "CdtrAgt BIC format-valid, but positions 5-6 are not an ISO 3166 country code - computable without external systems."
 
   - code: BENEFICIARY_NAME_INCOMPLETE
-    title: "Beneficiary-Name unvollstaendig"
+    title: "Beneficiary name incomplete"
     category: beneficiary_data
     severity: medium
     injector: beneficiary_name_incomplete
-    description: "Cdtr Name auf Initialen/Fragment gekuerzt - Name-Account-Pruefung schlaegt fehl."
+    description: "Cdtr name reduced to an initial/fragment - name-account verification will fail."
 
   - code: ADDRESS_INCOMPLETE
-    title: "Beneficiary-Adresse unvollstaendig"
+    title: "Beneficiary address incomplete"
     category: beneficiary_data
     severity: medium
     injector: address_incomplete
-    description: "Cdtr Adresse nur mit Land, ohne Strasse/Ort - Compliance-Anforderung verletzt."
+    description: "Cdtr address with country only, no street/town - violates compliance requirement."
 
   - code: DUPLICATE_UETR
-    title: "Doppelte UETR (Duplikat-Verdacht)"
+    title: "Duplicate UETR (possible duplicate payment)"
     category: duplicate
     severity: high
     injector: duplicate_uetr
-    description: "UETR einer frueheren Meldung im selben Batch wiederverwendet."
+    description: "UETR of an earlier message in the same batch reused."
 
   - code: XCHG_RATE_INCONSISTENT
-    title: "InstdAmt/XchgRate inkonsistent"
+    title: "InstdAmt/XchgRate inconsistent"
     category: fx
     severity: medium
     injector: xchg_rate_inconsistent
-    description: "InstdAmt (Fremdwaehrung) * XchgRate weicht deutlich vom IntrBkSttlmAmt ab."
+    description: "InstdAmt (foreign currency) * XchgRate deviates strongly from IntrBkSttlmAmt."
