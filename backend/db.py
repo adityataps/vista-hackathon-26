@@ -1,0 +1,71 @@
+import logging
+import os
+
+import psycopg2
+
+logger = logging.getLogger(__name__)
+
+_db_conn = None
+
+
+def get_db():
+    global _db_conn
+    if not os.environ.get("DATABASE_URL"):
+        return None
+    try:
+        if _db_conn is None or _db_conn.closed:
+            _db_conn = psycopg2.connect(os.environ["DATABASE_URL"])
+            _ensure_schema(_db_conn)
+    except Exception as exc:
+        logger.warning("DB connect failed: %s", exc)
+        return None
+    return _db_conn
+
+
+def _ensure_schema(conn):
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS payment_events (
+                id            SERIAL PRIMARY KEY,
+                event_id      TEXT UNIQUE NOT NULL,
+                uetr          TEXT NOT NULL,
+                msg_id        TEXT,
+                event_type    TEXT NOT NULL,
+                status_code   TEXT,
+                source_system TEXT,
+                actor         TEXT,
+                detail        TEXT,
+                occurred_at   TIMESTAMPTZ NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_events_uetr ON payment_events(uetr)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_events_msg_id ON payment_events(msg_id)")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS exceptions (
+                id              SERIAL PRIMARY KEY,
+                payment_id      INTEGER,
+                msg_id          TEXT UNIQUE NOT NULL,
+                uetr            TEXT NOT NULL,
+                detected_errors JSONB NOT NULL DEFAULT '[]',
+                status          TEXT NOT NULL DEFAULT 'pending',
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_exceptions_msg_id ON exceptions(msg_id)")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS investigations (
+                id              SERIAL PRIMARY KEY,
+                exception_id    INTEGER REFERENCES exceptions(id),
+                msg_id          TEXT NOT NULL,
+                steps           JSONB NOT NULL DEFAULT '[]',
+                findings        JSONB,
+                recommendation  JSONB,
+                approval_status TEXT DEFAULT 'pending',
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                completed_at    TIMESTAMPTZ
+            )
+        """)
+    conn.commit()
