@@ -21,3 +21,9 @@ variable "cloudflare_zone_id" {
 variable "cloudflare_api_token" {
   sensitive = true
 }
+
+variable "backend_url" {
+  description = "HTTPS URL of the PayInvestigator backend (ALB)"
+  type        = string
+  default     = ""
+}
