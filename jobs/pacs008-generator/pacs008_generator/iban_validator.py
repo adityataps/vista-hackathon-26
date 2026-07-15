@@ -1,20 +1,20 @@
-"""Weltweiter IBAN-Validator (ISO 13616 / ISO 7064 Mod-97).
+"""Worldwide IBAN Validator (ISO 13616 / ISO 7064 Mod-97).
 
-Prueft eine IBAN in 5 Stufen und liefert strukturierte Fehlercodes, die zu
-error_catalog.yaml / agent_error_knowledge.yaml passen:
+Validates an IBAN in 5 steps and returns structured error codes that match
+error_catalog.yaml / agent_error_knowledge.yaml:
 
-  IBAN_COUNTRY_UNKNOWN     Laendercode nicht im IBAN-Register
-  IBAN_INVALID_FORMAT      unzulaessige Zeichen / Aufbau
-  IBAN_WRONG_LENGTH        Laenge passt nicht zur Soll-Laenge des Landes
-  IBAN_INVALID_CHECKDIGITS Pruefziffern 00/01/99 sind per Standard unzulaessig
-  IBAN_INVALID_CHECKSUM    Mod-97-Pruefung fehlgeschlagen
+  IBAN_COUNTRY_UNKNOWN     Country code not in the IBAN registry
+  IBAN_INVALID_FORMAT      Invalid characters / structure
+  IBAN_WRONG_LENGTH        Length does not match the expected length for the country
+  IBAN_INVALID_CHECKDIGITS Check digits 00/01/99 are invalid per standard
+  IBAN_INVALID_CHECKSUM    Mod-97 check failed
 
 CLI:  python3 -m pacs008_generator.iban_validator CH9300762011623852957 DE44...
 """
 import re
 import sys
 
-# ISO 13616 IBAN-Register: Laendercode -> IBAN-Gesamtlaenge (Stand 2026)
+# ISO 13616 IBAN registry: country code -> total IBAN length (as of 2026)
 IBAN_LENGTHS = {
     "AD": 24, "AE": 23, "AL": 28, "AT": 20, "AZ": 28, "BA": 20, "BE": 16,
     "BG": 22, "BH": 22, "BI": 27, "BR": 29, "BY": 28, "CH": 21, "CR": 22,
@@ -43,9 +43,9 @@ def _mod97(iban):
 
 
 def validate_iban(iban):
-    """Validiert eine IBAN. Rueckgabe:
+    """Validates an IBAN. Returns:
     {"iban", "normalized", "country", "valid", "errors": [{code, detail}]}
-    Leerzeichen werden toleriert (Papierformat), Kleinbuchstaben normalisiert."""
+    Spaces are tolerated (paper format), lowercase letters are normalized."""
     raw = iban or ""
     norm = re.sub(r"[\s\-]", "", str(raw)).upper()
     res = {"iban": raw, "normalized": norm, "country": norm[:2] or None,
@@ -56,30 +56,30 @@ def validate_iban(iban):
 
     if not _STRUCT_RE.match(norm):
         err("IBAN_INVALID_FORMAT",
-            "Aufbau muss sein: 2 Buchstaben Laendercode + 2 Ziffern Pruefziffer "
-            "+ max. 30 alphanumerische Zeichen (gefunden: '%s')" % norm[:40])
-        return res  # weitere Pruefungen sinnlos
+            "The structure must be: 2-letter country code + 2-digit check number "
+            "+ max. 30 alphanumeric characters (found: '%s')" % norm[:40])
+        return res  # further tests pointless
 
     ctry = norm[:2]
     expected = IBAN_LENGTHS.get(ctry)
     if expected is None:
         err("IBAN_COUNTRY_UNKNOWN",
-            "Laendercode '%s' ist nicht im ISO-13616-IBAN-Register" % ctry)
+            "Country code '%s' is not in the ISO-13616 IBAN registry" % ctry)
         return res
 
     if len(norm) != expected:
         err("IBAN_WRONG_LENGTH",
-            "%s-IBAN muss %d Zeichen haben, gefunden: %d"
+            "%s IBAN must be %d characters long, found: %d"
             % (ctry, expected, len(norm)))
 
     if norm[2:4] in ("00", "01", "99"):
         err("IBAN_INVALID_CHECKDIGITS",
-            "Pruefziffern '%s' sind per ISO 7064 unzulaessig" % norm[2:4])
+            "Check digits '%s' are invalid per ISO 7064" % norm[2:4])
 
     if _mod97(norm) != 1:
         err("IBAN_INVALID_CHECKSUM",
-            "Mod-97-Pruefung fehlgeschlagen (Rest %d statt 1) - "
-            "Tippfehler oder verfaelschte IBAN" % _mod97(norm))
+            "Mod-97 check failed (remainder %d instead of 1) - "
+            "typo or corrupted IBAN" % _mod97(norm))
 
     res["valid"] = not res["errors"]
     return res
@@ -91,7 +91,7 @@ def is_valid(iban):
 
 def main(argv):
     if not argv:
-        print("Aufruf: python3 -m pacs008_generator.iban_validator <IBAN> [<IBAN> ...]")
+        print("Usage: python3 -m pacs008_generator.iban_validator <IBAN> [<IBAN> ...]")
         return 1
     rc = 0
     for iban in argv:

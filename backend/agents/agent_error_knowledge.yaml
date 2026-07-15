@@ -1,127 +1,104 @@
-# Error-Wissensbasis fuer den AI-Analyse-Agenten (Use Case A)
-# Gegenstueck zu error_catalog.yaml (Generator): gleiche Codes, aber aus
-# DETEKTIONS-Sicht - wo pruefen, wie pruefen, welche Referenzdaten, was tun.
-# Ground Truth zum Benchmarken liefert manifest.json des Generators.
-version: 1.0
-scope: "SWIFT CBPR+ pacs.008.001.08 (SR2025), nur Business-Fehler (XML ist XSD-valide)"
+# Error knowledge base for the AI analysis agent (Use Case A)
+# Counterpart of error_catalog.yaml (generator): same codes, but from the
+# DETECTION perspective - where to check, how to check, what to do.
+# Ground truth for benchmarking is delivered in the generator's manifest.json.
+version: 1.1
+scope: "SWIFT CBPR+ pacs.008.001.08 (SR2025), business errors only (XML is XSD-valid)"
 reference_data_needed:
-  bic_directory: "Gueltige/aktive BICs (Demo: AGENTS-Liste in datapool.py)"
-  iban_registry: "IBAN-Laengen und Formate pro Land (ISO 13616)"
-  watchlist: "Sanktionslisten-Namen (Demo: manifest.json reference_data.watchlist)"
-  account_status: "Kontostatus offen/geschlossen (Demo: manifest.json reference_data.closed_accounts)"
-  uetr_history: "Bereits verarbeitete UETRs (Demo: alle Meldungen des Batches)"
+  iban_registry: "IBAN lengths per country (ISO 13616) - static, see pacs008_generator/iban_validator.py"
+  iso_country_list: "ISO 3166 country codes - static"
+  uetr_history: "Previously processed UETRs (demo: all messages of the batch)"
 
 errors:
   - code: IBAN_INVALID_CHECKSUM
-    title: "IBAN Pruefziffer ungueltig"
+    title: "IBAN check digits invalid"
     category: account_identifier
     severity: high
     check_fields: ["CdtTrfTxInf/CdtrAcct/Id/IBAN"]
-    detection: "Mod-97-Pruefung nach ISO 7064: IBAN umstellen (BBAN+Laendercode+Pruefziffer), alphanumerisch zu Zahl expandieren, mod 97 muss 1 ergeben."
+    detection: "Mod-97 check per ISO 7064: rearrange IBAN (BBAN + country code + check digits), expand alphanumerics to digits, remainder must be 1."
     reference_data: []
     investigation_type: "UTAP (Unable to Apply)"
-    suggested_action: "Repair: korrekte IBAN beim Auftraggeber/DbtrAgt erfragen; kein Auto-Fix moeglich (Original unbekannt)."
+    suggested_action: "Repair: request correct IBAN from originator/DbtrAgt; no auto-fix possible (original unknown)."
     auto_repairable: false
 
   - code: IBAN_WRONG_LENGTH
-    title: "IBAN Laenge falsch fuer Laendercode"
+    title: "IBAN length wrong for country code"
     category: account_identifier
     severity: high
     check_fields: ["CdtTrfTxInf/CdtrAcct/Id/IBAN"]
-    detection: "Laenge der IBAN gegen laenderspezifische Soll-Laenge pruefen (DE=22, FR=27, GB=22, CH=21, NL=18, ...)."
+    detection: "Compare IBAN length against country-specific target length (DE=22, FR=27, GB=22, CH=21, NL=18, ...)."
     reference_data: ["iban_registry"]
     investigation_type: "UTAP"
-    suggested_action: "Repair: IBAN nachfordern; haeufig Tippfehler/abgeschnittene Erfassung."
+    suggested_action: "Repair: request IBAN again; usually a typo or truncated capture."
     auto_repairable: false
 
   - code: BIC_IBAN_COUNTRY_MISMATCH
-    title: "BIC/IBAN Laender-Mismatch"
+    title: "BIC/IBAN country mismatch"
     category: account_identifier
     severity: high
     check_fields: ["CdtTrfTxInf/CdtrAgt/FinInstnId/BICFI", "CdtTrfTxInf/CdtrAcct/Id/IBAN"]
-    detection: "BIC-Position 5-6 (Laendercode) mit IBAN-Position 1-2 vergleichen; Abweichung = Mismatch. Achtung: legitime Ausnahmen moeglich (z.B. Filial-BICs) -> als Verdacht flaggen."
-    reference_data: ["bic_directory"]
-    investigation_type: "UTAP / Routing-Klaerung"
-    suggested_action: "Pruefen ob CdtrAgt oder IBAN falsch; korrektes Agent-Institut ermitteln."
+    detection: "Compare BIC positions 5-6 (country code) with IBAN positions 1-2; deviation = mismatch. Note: legitimate exceptions possible (e.g. branch BICs) -> flag as suspicion."
+    reference_data: []
+    investigation_type: "UTAP / routing clarification"
+    suggested_action: "Check whether CdtrAgt or IBAN is wrong; determine the correct agent institution."
     auto_repairable: partially
 
-  - code: BIC_UNKNOWN
-    title: "BIC unbekannt/inaktiv"
+  - code: BIC_INVALID_COUNTRY
+    title: "BIC with invalid country code"
     category: routing
     severity: high
-    check_fields: ["CdtTrfTxInf/CdtrAgt/FinInstnId/BICFI", "alle Agent-BICs"]
-    detection: "Lookup gegen BIC-Verzeichnis; formatgueltig aber nicht gelistet/inaktiv = Treffer."
-    reference_data: ["bic_directory"]
-    investigation_type: "Routing / Return moeglich"
-    suggested_action: "Korrekten BIC ermitteln (Name/Adresse des Instituts als Suchbasis); sonst Return pacs.004."
+    check_fields: ["CdtTrfTxInf/CdtrAgt/FinInstnId/BICFI", "all agent BICs"]
+    detection: "Check BIC positions 5-6 against the static ISO 3166 country list - no external directory needed. (Production extension would be an existence check against SWIFTRef.)"
+    reference_data: []
+    investigation_type: "Routing / possible return"
+    suggested_action: "Determine the correct BIC; the BIC is obviously corrupted or mis-captured."
     auto_repairable: partially
 
   - code: BENEFICIARY_NAME_INCOMPLETE
-    title: "Beneficiary-Name unvollstaendig"
+    title: "Beneficiary name incomplete"
     category: beneficiary_data
     severity: medium
     check_fields: ["CdtTrfTxInf/Cdtr/Nm"]
-    detection: "Heuristik: Laenge < 5, nur Initialen (Muster '^[A-Z]\\.$'), einzelnes Token, generische Platzhalter (UNKNOWN, N/A)."
+    detection: "Heuristic: length < 5, initials only (pattern '^[A-Z]\\.$'), single token, generic placeholders (UNKNOWN, N/A)."
     reference_data: []
-    investigation_type: "UTAP (staerkster Demo-Fall)"
-    suggested_action: "camt.110 RQST/UTAP an DbtrAgt: vollstaendigen Namen anfordern; Name-Konto-Abgleich beim CdtrAgt scheitert sonst."
+    investigation_type: "UTAP (strongest demo case)"
+    suggested_action: "camt.110 RQST/UTAP to DbtrAgt: request the full name; name-account matching at the CdtrAgt will fail otherwise."
     auto_repairable: false
 
   - code: ADDRESS_INCOMPLETE
-    title: "Beneficiary-Adresse unvollstaendig"
+    title: "Beneficiary address incomplete"
     category: beneficiary_data
     severity: medium
     check_fields: ["CdtTrfTxInf/Cdtr/PstlAdr"]
-    detection: "PstlAdr enthaelt nur Ctry (kein TwnNm/StrtNm/AdrLine) - verletzt CBPR+-Erwartung Stadt+Land; ab SR2026 strenger."
+    detection: "PstlAdr contains only Ctry (no TwnNm/StrtNm/AdrLine) - violates CBPR+ expectation of town + country; stricter from SR2026."
     reference_data: []
-    investigation_type: "RQFI (Compliance) / UTAP"
-    suggested_action: "Vollstaendige strukturierte Adresse nachfordern (FATF-Empfehlung 16 / Travel Rule)."
+    investigation_type: "RQFI (compliance) / UTAP"
+    suggested_action: "Request the complete structured address (FATF Recommendation 16 / Travel Rule)."
     auto_repairable: false
 
   - code: DUPLICATE_UETR
-    title: "Doppelte UETR (Duplikat-Verdacht)"
+    title: "Duplicate UETR (possible duplicate payment)"
     category: duplicate
     severity: high
     check_fields: ["CdtTrfTxInf/PmtId/UETR"]
-    detection: "UETR gegen Historie bereits verarbeiteter Meldungen pruefen; Treffer = moegliche Doppelverarbeitung."
+    detection: "Check UETR against the history of already processed messages; hit = possible duplicate processing. In the demo the history is the delivered batch itself."
     reference_data: ["uetr_history"]
-    investigation_type: "Duplikat-Klaerung / ggf. Recall camt.056"
-    suggested_action: "Zahlung anhalten, Original vergleichen (Betrag/Parteien identisch? -> echtes Duplikat, Recall); UETR nie wiederverwenden."
+    investigation_type: "Duplicate clarification / possibly recall camt.056"
+    suggested_action: "Hold the payment, compare with the original (amount/parties identical? -> true duplicate, recall); never reuse a UETR."
     auto_repairable: false
 
   - code: XCHG_RATE_INCONSISTENT
-    title: "InstdAmt/XchgRate inkonsistent"
+    title: "InstdAmt/XchgRate inconsistent"
     category: fx
     severity: medium
     check_fields: ["CdtTrfTxInf/InstdAmt", "CdtTrfTxInf/XchgRate", "CdtTrfTxInf/IntrBkSttlmAmt"]
-    detection: "Wenn InstdAmt-Waehrung != IntrBkSttlmAmt-Waehrung: |InstdAmt * XchgRate - IntrBkSttlmAmt| / IntrBkSttlmAmt > Toleranz (z.B. 1%) = inkonsistent."
+    detection: "If InstdAmt currency != IntrBkSttlmAmt currency: |InstdAmt * XchgRate - IntrBkSttlmAmt| / IntrBkSttlmAmt > tolerance (e.g. 1%) = inconsistent."
     reference_data: []
-    investigation_type: "Klaerung mit InstgAgt"
-    suggested_action: "Korrekten Kurs/Betrag klaeren; Rundungsregeln und Kursdatum beruecksichtigen."
+    investigation_type: "Clarification with instructing agent"
+    suggested_action: "Clarify the correct rate/amount; consider rounding rules and rate date."
     auto_repairable: partially
 
-  - code: SANCTIONS_NAME_HIT
-    title: "Sanctions-Screening-Treffer (Name)"
-    category: compliance
-    severity: high
-    check_fields: ["CdtTrfTxInf/Cdtr/Nm", "CdtTrfTxInf/Dbtr/Nm"]
-    detection: "Fuzzy-Match (z.B. Jaro-Winkler/Token-Match) der Parteinamen gegen Watchlist; Score-Schwelle fuer Hit vs. Falsch-Positiv."
-    reference_data: ["watchlist"]
-    investigation_type: "RQFI SANC (Request for Information - Sanctions)"
-    suggested_action: "Zahlung sperren, Compliance eskalieren; camt.110 RQFI fuer Zusatzinfos; NIE automatisch freigeben."
-    auto_repairable: false
-
-  - code: ACCOUNT_CLOSED
-    title: "Beneficiary-Konto geschlossen"
-    category: beneficiary_data
-    severity: high
-    check_fields: ["CdtTrfTxInf/CdtrAcct/Id/IBAN"]
-    detection: "Lookup gegen Kontostatus-Referenz (nur CdtrAgt-seitig moeglich); IBAN formal gueltig."
-    reference_data: ["account_status"]
-    investigation_type: "UTAP -> Return pacs.004"
-    suggested_action: "camt.110 UTAP: neue Kontoverbindung anfordern oder Zahlung returnieren."
-    auto_repairable: false
-
-# Hinweis fuer den Agenten: Meldungen koennen theoretisch mehrere Fehler tragen
-# (Generator injiziert aktuell genau einen pro fehlerhafter Meldung).
-# Empfohlener Analyse-Output pro Meldung: [{code, confidence, evidence(felder+werte), suggested_action}]
+# Note for the agent: messages could in theory carry several errors
+# (the generator currently injects exactly one per faulty message).
+# Recommended analysis output per message:
+# [{code, confidence, evidence(fields+values), suggested_action}]
