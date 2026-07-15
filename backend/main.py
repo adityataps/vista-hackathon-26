@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from db import get_db, _ensure_schema
 from pacs008_generator.generator import generate_batch
 from routers.exceptions import router as exceptions_router
+from routers.resolutions import router as resolutions_router
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,7 @@ app.add_middleware(
 )
 
 app.include_router(exceptions_router)
+app.include_router(resolutions_router)
 
 
 @app.get("/health")
