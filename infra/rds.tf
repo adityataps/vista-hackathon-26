@@ -27,6 +27,15 @@ resource "aws_security_group_rule" "rds_ingress_lambda" {
   source_security_group_id = aws_security_group.lambda_ingest.id
 }
 
+resource "aws_security_group_rule" "rds_ingress_public" {
+  type              = "ingress"
+  security_group_id = aws_security_group.rds.id
+  from_port         = 5432
+  to_port           = 5432
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+}
+
 resource "aws_security_group_rule" "rds_ingress_backend" {
   type                     = "ingress"
   security_group_id        = aws_security_group.rds.id
@@ -67,7 +76,7 @@ resource "aws_db_instance" "main" {
   password                = random_password.db.result
   db_subnet_group_name    = aws_db_subnet_group.main.name
   vpc_security_group_ids  = [aws_security_group.rds.id]
-  publicly_accessible     = false
+  publicly_accessible     = true
   skip_final_snapshot     = true
   backup_retention_period = 0
 }

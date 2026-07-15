@@ -62,6 +62,7 @@ def _write_events(conn, messages):
             rows.append({
                 **evt,
                 "msg_id": msg["msg_id"],
+                "uetr": msg["uetr"],
             })
     if not rows:
         return
