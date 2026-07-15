@@ -116,6 +116,36 @@ resource "aws_iam_role_policy" "bedrock_kb" {
   })
 }
 
+# ── Pre-create the AOSS index that Bedrock expects ────────────────────────────
+
+resource "opensearch_index" "kb_default" {
+  name               = "bedrock-knowledge-base-default-index"
+  number_of_shards   = "2"
+  number_of_replicas = "0"
+  index_knn          = true
+  mappings = jsonencode({
+    properties = {
+      "bedrock-knowledge-base-default-vector" = {
+        type      = "knn_vector"
+        dimension = 1024
+        method = {
+          engine     = "faiss"
+          name       = "hnsw"
+          space_type = "l2"
+          parameters = { ef_construction = 512, m = 16 }
+        }
+      }
+      "AMAZON_BEDROCK_TEXT_CHUNK" = { type = "text" }
+      "AMAZON_BEDROCK_METADATA"   = { type = "text", index = "false" }
+    }
+  })
+  force_destroy = true
+  depends_on = [
+    aws_opensearchserverless_collection.kb,
+    aws_opensearchserverless_access_policy.kb,
+  ]
+}
+
 # ── Bedrock Knowledge Base ─────────────────────────────────────────────────────
 
 resource "aws_bedrockagent_knowledge_base" "main" {
@@ -142,7 +172,10 @@ resource "aws_bedrockagent_knowledge_base" "main" {
     }
   }
 
-  depends_on = [aws_opensearchserverless_access_policy.kb]
+  depends_on = [
+    aws_opensearchserverless_access_policy.kb,
+    opensearch_index.kb_default,
+  ]
 }
 
 # ── S3 data source ─────────────────────────────────────────────────────────────
