@@ -1,22 +1,29 @@
 package com.payinvestigator.ingest.filesystem;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.payinvestigator.ingest.config.FileSystemIngestProperties;
 import com.payinvestigator.ingest.db.PaymentRepository;
-import com.payinvestigator.ingest.resolution.ErrorResolutionAgent;
 import com.payinvestigator.ingest.rules.ErrorHit;
 import com.payinvestigator.ingest.rules.PaymentErrorDetector;
 import com.payinvestigator.ingest.xml.Pacs008Parser;
 import com.payinvestigator.ingest.xml.ParsedPayment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -43,16 +50,19 @@ public class FileSystemPaymentPoller {
     private final FileSystemIngestProperties props;
     private final PaymentRepository paymentRepository;
     private final LocalReferenceDataLoader referenceDataLoader;
-    private final ErrorResolutionAgent errorResolutionAgent;
+    private final ObjectMapper objectMapper;
+    private final String backendUrl;
 
     private volatile LocalReferenceDataLoader.ReferenceData referenceData;
 
     public FileSystemPaymentPoller(FileSystemIngestProperties props, PaymentRepository paymentRepository,
-                                    LocalReferenceDataLoader referenceDataLoader, ErrorResolutionAgent errorResolutionAgent) {
+                                    LocalReferenceDataLoader referenceDataLoader, ObjectMapper objectMapper,
+                                    @Value("${payment-ingest.backend-url:http://localhost:8000}") String backendUrl) {
         this.props = props;
         this.paymentRepository = paymentRepository;
         this.referenceDataLoader = referenceDataLoader;
-        this.errorResolutionAgent = errorResolutionAgent;
+        this.objectMapper = objectMapper;
+        this.backendUrl = backendUrl;
     }
 
     @Scheduled(fixedDelayString = "${payment-ingest.filesystem.poll-interval-ms:5000}")
@@ -124,7 +134,33 @@ public class FileSystemPaymentPoller {
         log.info("ingested {} (msg_id={}, payment_id={}, has_error={})", key, parsed.msgId, paymentId, hasError);
 
         if (hasError) {
-            errorResolutionAgent.investigate(key, paymentId, parsed, hits);
+            notifyBackendExceptions(parsed.msgId, parsed.uetr, hits);
+        }
+    }
+
+    private void notifyBackendExceptions(String msgId, String uetr, List<ErrorHit> hits) {
+        if (backendUrl.isBlank() || hits.isEmpty()) return;
+        try {
+            var detected = hits.stream()
+                    .map(h -> Map.of("code", h.code(), "field", "", "value", h.message()))
+                    .toList();
+            var payload = Map.of(
+                    "msg_id", msgId != null ? msgId : "",
+                    "uetr", uetr != null ? uetr : "",
+                    "detected_errors", detected
+            );
+            String json = objectMapper.writeValueAsString(payload);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(backendUrl + "/api/ingest/exceptions"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .timeout(Duration.ofSeconds(3))
+                    .build();
+            HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.discarding());
+            log.info("Notified backend of exception: msg_id={} errors={}", msgId,
+                    hits.stream().map(ErrorHit::code).toList());
+        } catch (Exception e) {
+            log.warn("Backend exception notification failed (non-fatal): {}", e.getMessage());
         }
     }
 }

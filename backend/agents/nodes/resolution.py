@@ -1,7 +1,9 @@
 import json
 import logging
+import os
 from datetime import datetime, timezone
 
+import yaml
 from langchain_aws import ChatBedrock
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -10,14 +12,47 @@ from agents.tools.payment_tools import get_resolution_history
 
 logger = logging.getLogger(__name__)
 
-SYSTEM = """You are the Resolution Agent. You synthesise findings from specialist agents
-and produce a single clear recommendation for the human analyst.
-Your output must be a JSON object with exactly these keys:
-  action   — one sentence: what the analyst should do
-  rationale — 2-3 sentences: why, citing specific evidence from the investigation
-  confidence — a float 0.0–1.0
+SYSTEM = """You are the Resolution Agent for a payment exception investigation system.
+You synthesise findings from specialist agents and produce a single clear recommendation
+for the human analyst.
 
-Do NOT recommend any autonomous action. Always end with the analyst making the final decision."""
+Your output must be a JSON object with exactly these keys:
+  action      — one sentence: what the analyst should do
+  rationale   — 2-3 sentences: why, citing specific evidence from the investigation
+  confidence  — a float 0.0–1.0
+  requires_human_approval — always true
+
+Do NOT recommend any autonomous action. The analyst makes the final decision."""
+
+
+def _load_kb() -> dict:
+    """Load agent_error_knowledge.yaml once at module level."""
+    kb_path = os.path.join(os.path.dirname(__file__), "..", "agent_error_knowledge.yaml")
+    try:
+        with open(os.path.normpath(kb_path)) as f:
+            data = yaml.safe_load(f)
+        return {e["code"]: e for e in data.get("errors", [])}
+    except Exception as exc:
+        logger.warning("Could not load error KB: %s", exc)
+        return {}
+
+
+_KB: dict = _load_kb()
+
+
+def _kb_context(error_codes: list[str]) -> str:
+    """Return KB entries for the detected error codes as a formatted block."""
+    entries = [_KB[c] for c in error_codes if c in _KB]
+    if not entries:
+        return ""
+    lines = ["Error Knowledge Base (per-error guidance):"]
+    for e in entries:
+        lines.append(
+            f"  [{e['code']}] severity={e['severity']} investigation_type={e['investigation_type']}\n"
+            f"    suggested_action: {e['suggested_action']}\n"
+            f"    auto_repairable: {e.get('auto_repairable', False)}"
+        )
+    return "\n".join(lines)
 
 
 async def resolution_node(state: InvestigationState, llm: ChatBedrock) -> dict:
@@ -25,24 +60,26 @@ async def resolution_node(state: InvestigationState, llm: ChatBedrock) -> dict:
     compliance = state.get("compliance_findings") or {}
     errors = state["detected_errors"]
 
-    # pull resolution history for context
     error_codes = [e.get("code") for e in errors if e.get("code")]
     history_results = []
-    for code in error_codes[:2]:  # limit to 2 lookups
+    for code in error_codes[:2]:
         history_results.append(get_resolution_history.invoke({"error_code": code}))
 
+    kb_section = _kb_context(error_codes)
+
     prompt = (
+        f"{kb_section}\n\n" if kb_section else ""
+    ) + (
         f"Technical findings:\n{technical.get('raw', 'N/A')}\n\n"
         f"Compliance findings:\n{compliance.get('raw', 'N/A')}\n\n"
         f"Prior resolution history:\n{json.dumps(history_results)}\n\n"
         "Synthesise these findings and produce your recommendation as a JSON object with "
-        "keys: action, rationale, confidence."
+        "keys: action, rationale, confidence, requires_human_approval."
     )
 
     response = await llm.ainvoke([SystemMessage(content=SYSTEM), HumanMessage(content=prompt)])
     raw = response.content.strip()
 
-    # extract JSON — model may wrap in markdown code block
     if "```" in raw:
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -50,7 +87,10 @@ async def resolution_node(state: InvestigationState, llm: ChatBedrock) -> dict:
     try:
         recommendation = json.loads(raw)
     except Exception:
-        recommendation = {"action": raw, "rationale": "See full agent output.", "confidence": 0.8}
+        recommendation = {"action": raw, "rationale": "See full agent output.", "confidence": 0.8,
+                          "requires_human_approval": True}
+
+    recommendation.setdefault("requires_human_approval", True)
 
     ts = datetime.now(timezone.utc).isoformat()
     step = {
