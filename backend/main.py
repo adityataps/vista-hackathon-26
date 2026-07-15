@@ -50,6 +50,20 @@ async def lifespan(app: FastAPI):
     yield
 
 
+from agents.graph import build_graph, make_llm as _make_llm
+
+_llm = None
+_investigation_graph = None
+
+
+def get_graph():
+    global _llm, _investigation_graph
+    if _investigation_graph is None:
+        _llm = _make_llm()
+        _investigation_graph = build_graph(_llm)
+    return _investigation_graph
+
+
 app = FastAPI(title="PayInvestigator", lifespan=lifespan)
 
 app.add_middleware(
