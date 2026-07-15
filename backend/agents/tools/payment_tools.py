@@ -36,6 +36,38 @@ def get_payment_record(msg_id: str) -> str:
 
 
 @tool
+def get_payment_events(uetr: str) -> str:
+    """Fetch the full lifecycle event log for a payment by UETR.
+    Returns chronological events: STP steps, status transitions, source systems, actors, and details.
+    Use this to understand what happened to the payment before and after the error was detected."""
+    conn = get_db()
+    if not conn:
+        return json.dumps({"error": "DB unavailable"})
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT event_type, status_code, source_system, actor, detail, occurred_at
+            FROM payment_events
+            WHERE uetr = %s
+            ORDER BY occurred_at ASC
+        """, (uetr,))
+        rows = cur.fetchall()
+    if not rows:
+        return json.dumps({"events": [], "note": "No lifecycle events found for this UETR"})
+    events = [
+        {
+            "event_type": r[0],
+            "status_code": r[1],
+            "source_system": r[2],
+            "actor": r[3],
+            "detail": r[4],
+            "occurred_at": str(r[5]),
+        }
+        for r in rows
+    ]
+    return json.dumps({"uetr": uetr, "events": events})
+
+
+@tool
 def get_resolution_history(error_code: str) -> str:
     """Fetch prior resolved investigation cases for the same error code."""
     conn = get_db()
