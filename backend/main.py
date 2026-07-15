@@ -95,8 +95,7 @@ def _seed_write_db(conn, messages: list, s3_prefix: str):
 
             if msg["is_faulty"]:
                 detected = [
-                    {"code": e["code"], "field": e.get("detail", {}).get("field", ""),
-                     "value": e.get("detail", {}).get("value", "")}
+                    {"code": e["code"], "field": "", "value": str(e.get("detail", ""))[:200]}
                     for e in msg.get("errors", [])
                 ]
                 cur.execute("""
