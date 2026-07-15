@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import urllib.request
 from decimal import Decimal
 
 import boto3
@@ -143,6 +144,29 @@ def _ingest_record(s3_key, parsed, raw_xml):
     conn.commit()
 
 
+def _notify_backend(msg_id: str, uetr: str, is_faulty: bool):
+    """Fire-and-forget POST to backend when a faulty payment is ingested."""
+    backend_url = os.environ.get("BACKEND_URL", "")
+    if not backend_url or not is_faulty:
+        return
+    try:
+        payload = json.dumps({
+            "msg_id": msg_id,
+            "uetr": uetr,
+            "detected_errors": [{"code": "UNKNOWN", "field": "", "value": ""}],
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{backend_url}/api/ingest/exceptions",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=3)
+        logger.info("Notified backend of faulty payment: %s", msg_id)
+    except Exception as exc:
+        logger.warning("Backend notification failed (non-fatal): %s", exc)
+
+
 def lambda_handler(event, context):
     s3 = boto3.client('s3')
     processed = failed = skipped = 0
@@ -170,6 +194,7 @@ def lambda_handler(event, context):
                 raw_xml = obj['Body'].read().decode('utf-8')
                 parsed = _parse_pacs008(raw_xml)
                 _ingest_record(key, parsed, raw_xml)
+                _notify_backend(parsed.get("msg_id", ""), parsed.get("uetr", ""), 'FAULTY' in key.upper())
                 logger.info("ingested %s (msg_id=%s)", key, parsed.get('msg_id'))
                 processed += 1
             except Exception as exc:
