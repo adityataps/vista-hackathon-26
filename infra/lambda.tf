@@ -80,6 +80,7 @@ resource "aws_lambda_function" "payment_ingest" {
   environment {
     variables = {
       DATABASE_URL = "postgresql://${local.db_user}:${random_password.db.result}@${aws_db_instance.main.endpoint}/${local.db_name}"
+      BACKEND_URL  = var.backend_url
     }
   }
 
