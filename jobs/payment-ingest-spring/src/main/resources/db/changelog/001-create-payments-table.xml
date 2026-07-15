@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Mirrors jobs/payment-ingest's payments table (the Lambda variant),
+         so both ingestion paths can write to the same schema. Liquibase's
+         changeSet/preConditions make this idempotent: if the table already
+         exists (e.g. created by the Lambda job) this changeSet is skipped;
+         if it doesn't, it's created here on first startup. -->
+    <changeSet id="001-create-payments-table" author="payment-ingest-spring">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="payments"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="payments">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="s3_key" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="msg_id" type="TEXT">
+                <constraints unique="true" uniqueConstraintName="uq_payments_msg_id"/>
+            </column>
+            <column name="uetr" type="TEXT"/>
+            <column name="instr_id" type="TEXT"/>
+            <column name="e2e_id" type="TEXT"/>
+            <column name="amount" type="NUMERIC(20,5)"/>
+            <column name="currency" type="VARCHAR(3)"/>
+            <column name="settlement_date" type="DATE"/>
+            <column name="sender_bic" type="TEXT"/>
+            <column name="receiver_bic" type="TEXT"/>
+            <column name="debtor_bic" type="TEXT"/>
+            <column name="creditor_bic" type="TEXT"/>
+            <column name="debtor_name" type="TEXT"/>
+            <column name="debtor_iban" type="TEXT"/>
+            <column name="creditor_name" type="TEXT"/>
+            <column name="creditor_iban" type="TEXT"/>
+            <column name="is_faulty" type="BOOLEAN" defaultValueBoolean="false"/>
+            <column name="raw_xml" type="TEXT"/>
+            <column name="has_error" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="error_msg" type="TEXT"/>
+            <column name="ingested_at" type="TIMESTAMP" defaultValueComputed="NOW()"/>
+        </createTable>
+
+        <createIndex tableName="payments" indexName="idx_payments_has_error">
+            <column name="has_error"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Idempotent migration path for a payments table that already exists
+         (e.g. created earlier by the Lambda job) but predates has_error/error_msg. -->
+    <changeSet id="002-add-error-columns-if-missing" author="payment-ingest-spring">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <tableExists tableName="payments"/>
+                <not>
+                    <columnExists tableName="payments" columnName="has_error"/>
+                </not>
+            </and>
+        </preConditions>
+        <addColumn tableName="payments">
+            <column name="has_error" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="error_msg" type="TEXT"/>
+        </addColumn>
+        <createIndex tableName="payments" indexName="idx_payments_has_error">
+            <column name="has_error"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Allow duplicate business messages to be persisted as separate rows.
+         This prevents reprocessing loops when duplicate files are detected but
+         were previously skipped by msg_id uniqueness. -->
+    <changeSet id="003-drop-msg-id-uniqueness" author="payment-ingest-spring" dbms="postgresql">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="payments"/>
+        </preConditions>
+
+        <sql>ALTER TABLE payments DROP CONSTRAINT IF EXISTS uq_payments_msg_id;</sql>
+        <sql>ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_msg_id_key;</sql>
+        <sql>DROP INDEX IF EXISTS uq_payments_msg_id;</sql>
+        <sql>CREATE INDEX IF NOT EXISTS idx_payments_msg_id ON payments (msg_id);</sql>
+    </changeSet>
+
+</databaseChangeLog>

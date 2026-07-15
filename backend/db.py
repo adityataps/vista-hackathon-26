@@ -62,9 +62,13 @@ def _ensure_schema(conn):
                 creditor_iban   TEXT,
                 is_faulty       BOOLEAN DEFAULT FALSE,
                 raw_xml         TEXT,
+                has_error       BOOLEAN NOT NULL DEFAULT FALSE,
+                error_msg       TEXT,
                 ingested_at     TIMESTAMP DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS has_error BOOLEAN NOT NULL DEFAULT FALSE")
+        cur.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS error_msg TEXT")
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS exceptions (

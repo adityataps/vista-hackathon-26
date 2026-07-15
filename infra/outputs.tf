@@ -38,6 +38,14 @@ output "sqs_payment_ingest_url" {
   value = aws_sqs_queue.payment_ingest.url
 }
 
+output "s3_knowledge_base_bucket" {
+  value = aws_s3_bucket.knowledge_base.bucket
+}
+
+output "knowledge_base_id" {
+  value = aws_bedrockagent_knowledge_base.main.id
+}
+
 output "guardrail_id" {
   value = aws_bedrock_guardrail.pay_investigator.guardrail_id
 }

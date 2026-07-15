@@ -1,0 +1,12 @@
+POST https://vistahack26.tapshalkar.com/api/seed
+Content-Type: application/json
+
+{
+  "count": 10,
+  "error_rate": 0.3,
+  "seed": 42,
+  "error_codes": [
+    "SANCTIONS_NAME_HIT",
+    "IBAN_INVALID_CHECKSUM"
+  ]
+}

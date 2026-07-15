@@ -27,3 +27,9 @@ variable "backend_url" {
   type        = string
   default     = ""
 }
+
+variable "error_notify_endpoint_url" {
+  description = "POST target the payment-ingest Lambda calls with {payment_id, error_msg} when a payment error is detected. Leave blank to disable notifications."
+  type        = string
+  default     = ""
+}

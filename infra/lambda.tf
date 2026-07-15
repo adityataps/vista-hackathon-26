@@ -37,6 +37,10 @@ data "aws_iam_policy_document" "lambda_ingest" {
     resources = ["${aws_s3_bucket.mockdata.arn}/payments/*"]
   }
   statement {
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.mockdata.arn}/${local.reference_data_prefix}*"]
+  }
+  statement {
     actions = [
       "sqs:ReceiveMessage",
       "sqs:DeleteMessage",
@@ -60,6 +64,12 @@ resource "aws_cloudwatch_log_group" "lambda_ingest" {
 # ── Lambda function ────────────────────────────────────────────────────────────
 # image_uri uses the base Lambda image as a placeholder for the initial apply;
 # CI pushes the real image and calls update-function-code after each push.
+locals {
+  # S3 prefix (within the shared mockdata bucket) holding optional error-detection
+  # reference data: bic_directory.json / watchlist.json / closed_accounts.json.
+  reference_data_prefix = "reference/"
+}
+
 resource "aws_lambda_function" "payment_ingest" {
   function_name = "${var.app_name}-payment-xml-ingest"
   role          = aws_iam_role.lambda_ingest.arn
@@ -79,8 +89,10 @@ resource "aws_lambda_function" "payment_ingest" {
 
   environment {
     variables = {
-      DATABASE_URL = "postgresql://${local.db_user}:${random_password.db.result}@${aws_db_instance.main.endpoint}/${local.db_name}"
-      BACKEND_URL  = var.backend_url
+      DATABASE_URL              = "postgresql://${local.db_user}:${random_password.db.result}@${aws_db_instance.main.endpoint}/${local.db_name}"
+      BACKEND_URL               = var.backend_url
+      REFERENCE_DATA_S3_URI     = "s3://${aws_s3_bucket.mockdata.id}/${local.reference_data_prefix}"
+      ERROR_NOTIFY_ENDPOINT_URL = var.error_notify_endpoint_url
     }
   }
 

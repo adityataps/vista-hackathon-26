@@ -77,6 +77,17 @@ data "aws_iam_policy_document" "backend_task" {
       "${aws_s3_bucket.mockdata.arn}/*",
     ]
   }
+  statement {
+    actions = ["s3:GetObject", "s3:ListBucket"]
+    resources = [
+      aws_s3_bucket.knowledge_base.arn,
+      "${aws_s3_bucket.knowledge_base.arn}/*",
+    ]
+  }
+  statement {
+    actions   = ["bedrock:Retrieve", "bedrock:RetrieveAndGenerate"]
+    resources = [aws_bedrockagent_knowledge_base.main.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "backend_task" {
