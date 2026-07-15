@@ -1,5 +1,6 @@
 package com.payinvestigator.ingest.config;
 
+import com.payinvestigator.ingest.resolution.ErrorAgentProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,7 +11,7 @@ import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import java.net.URI;
 
 @Configuration
-@EnableConfigurationProperties(S3IngestProperties.class)
+@EnableConfigurationProperties({S3IngestProperties.class, ErrorAgentProperties.class, FileSystemIngestProperties.class})
 public class S3ClientConfig {
 
     @Bean

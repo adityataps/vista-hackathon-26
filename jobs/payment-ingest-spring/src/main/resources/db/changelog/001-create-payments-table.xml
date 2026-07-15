@@ -77,4 +77,18 @@
         </createIndex>
     </changeSet>
 
+    <!-- Allow duplicate business messages to be persisted as separate rows.
+         This prevents reprocessing loops when duplicate files are detected but
+         were previously skipped by msg_id uniqueness. -->
+    <changeSet id="003-drop-msg-id-uniqueness" author="payment-ingest-spring" dbms="postgresql">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="payments"/>
+        </preConditions>
+
+        <sql>ALTER TABLE payments DROP CONSTRAINT IF EXISTS uq_payments_msg_id;</sql>
+        <sql>ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_msg_id_key;</sql>
+        <sql>DROP INDEX IF EXISTS uq_payments_msg_id;</sql>
+        <sql>CREATE INDEX IF NOT EXISTS idx_payments_msg_id ON payments (msg_id);</sql>
+    </changeSet>
+
 </databaseChangeLog>

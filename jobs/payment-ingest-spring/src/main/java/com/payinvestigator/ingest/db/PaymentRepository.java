@@ -38,8 +38,11 @@ public class PaymentRepository {
         return jdbcTemplate.queryForList("SELECT uetr FROM payments WHERE uetr = ?", String.class, uetr);
     }
 
-    /** Inserts one payment row and returns the generated id, or null if
-     * msg_id already existed (ON CONFLICT DO NOTHING - idempotent re-processing). */
+    /** Inserts one payment row and returns the generated id.
+     * Duplicate business payments are intentionally persisted as separate rows
+     * (new id each time) so duplicate-detection errors can be tracked and
+     * resolved without creating poller reprocessing loops.
+     */
     public Long insert(String s3Key, ParsedPayment p, boolean isFaulty, boolean hasError, String errorMsg, String rawXml) {
         String sql = """
                 INSERT INTO payments (
@@ -49,7 +52,6 @@ public class PaymentRepository {
                     debtor_name, debtor_iban, creditor_name, creditor_iban,
                     is_faulty, raw_xml, has_error, error_msg
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (msg_id) DO NOTHING
                 RETURNING id
                 """;
 
@@ -90,6 +92,9 @@ public class PaymentRepository {
             return result;
         });
 
-        return ids.isEmpty() ? null : ids.get(0);
+        if (ids == null || ids.isEmpty()) {
+            return null;
+        }
+        return ids.get(0);
     }
 }

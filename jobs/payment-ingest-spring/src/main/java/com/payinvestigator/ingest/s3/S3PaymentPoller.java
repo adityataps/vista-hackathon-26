@@ -2,12 +2,14 @@ package com.payinvestigator.ingest.s3;
 
 import com.payinvestigator.ingest.config.S3IngestProperties;
 import com.payinvestigator.ingest.db.PaymentRepository;
+import com.payinvestigator.ingest.resolution.ErrorResolutionAgent;
 import com.payinvestigator.ingest.rules.ErrorHit;
 import com.payinvestigator.ingest.rules.PaymentErrorDetector;
 import com.payinvestigator.ingest.xml.Pacs008Parser;
 import com.payinvestigator.ingest.xml.ParsedPayment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.ResponseInputStream;
@@ -34,6 +36,7 @@ import java.util.Set;
  * near-real-time ingestion is needed later.
  */
 @Service
+@ConditionalOnProperty(name = "payment-ingest.source", havingValue = "s3", matchIfMissing = true)
 public class S3PaymentPoller {
 
     private static final Logger log = LoggerFactory.getLogger(S3PaymentPoller.class);
@@ -42,15 +45,18 @@ public class S3PaymentPoller {
     private final S3IngestProperties props;
     private final PaymentRepository paymentRepository;
     private final ReferenceDataLoader referenceDataLoader;
+    private final ErrorResolutionAgent errorResolutionAgent;
 
     private volatile ReferenceDataLoader.ReferenceData referenceData;
 
     public S3PaymentPoller(S3Client s3Client, S3IngestProperties props,
-                            PaymentRepository paymentRepository, ReferenceDataLoader referenceDataLoader) {
+                            PaymentRepository paymentRepository, ReferenceDataLoader referenceDataLoader,
+                            ErrorResolutionAgent errorResolutionAgent) {
         this.s3Client = s3Client;
         this.props = props;
         this.paymentRepository = paymentRepository;
         this.referenceDataLoader = referenceDataLoader;
+        this.errorResolutionAgent = errorResolutionAgent;
     }
 
     @Scheduled(fixedDelayString = "${payment-ingest.s3.poll-interval-ms:15000}")
@@ -126,6 +132,10 @@ public class S3PaymentPoller {
 
         Long paymentId = paymentRepository.insert(key, parsed, isFaulty, hasError, errorMsg, rawXml);
         log.info("ingested {} (msg_id={}, payment_id={}, has_error={})", key, parsed.msgId, paymentId, hasError);
+
+        if (hasError) {
+            errorResolutionAgent.investigate(key, paymentId, parsed, hits);
+        }
     }
 
     private String downloadObject(String key) throws IOException {
