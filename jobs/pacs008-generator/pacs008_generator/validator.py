@@ -14,9 +14,9 @@ def _schema(name):
         path = os.path.join(SCHEMA_DIR, name)
         if not os.path.isfile(path):
             raise RuntimeError(
-                "CBPR+ XSD fehlt: %s - die MyStandards-Schemas sind lizenzpflichtig "
-                "und nicht im oeffentlichen Repo. Siehe schemas/README.md, die zwei "
-                "XSD-Dateien manuell in schemas/ ablegen." % path)
+                "CBPR+ XSD missing: %s - the MyStandards schemas are licensed. "
+                "See schemas/README.md and place the two XSD files "
+                "into schemas/ manually." % path)
         _cache[name] = xmlschema.XMLSchema(path)
     return _cache[name]
 

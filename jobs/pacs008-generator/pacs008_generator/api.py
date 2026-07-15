@@ -1,7 +1,7 @@
-"""FastAPI wrapper + Demo-UI.
+"""FastAPI wrapper + demo UI.
 
 Start:  uvicorn pacs008_generator.api:app --port 8080
-UI:     http://localhost:8080/        (Demo-Oberflaeche)
+UI:     http://localhost:8080/        (demo interface)
 Docs:   http://localhost:8080/docs
 """
 import os
@@ -22,15 +22,15 @@ UI_FILE = os.path.join(BASE_DIR, "ui", "index.html")
 RUNS_DIR = os.path.join(BASE_DIR, "output", "ui-runs")
 
 app = FastAPI(title="pacs.008 CBPR+ Generator",
-              description="Generiert XSD-valide pacs.008 Meldungen mit "
-                          "konfigurierbaren Business-Fehlern (Use Case A).",
+              description="Generates XSD-valid pacs.008 messages with "
+                          "configurable business errors (Use Case A).",
               version="0.2.0")
 
 
 class GenerateRequest(BaseModel):
     count: int = Field(10, ge=1, le=500)
     error_rate: float = Field(0.3, ge=0.0, le=1.0)
-    faulty: Optional[int] = Field(None, ge=0, description="absolute Anzahl, ueberschreibt error_rate")
+    faulty: Optional[int] = Field(None, ge=0, description="absolute number, overrides error_rate")
     seed: Optional[int] = None
     error_codes: Optional[List[str]] = None
     include_xml: bool = True
@@ -44,14 +44,14 @@ def ui():
 
 @app.get("/errors")
 def list_errors():
-    """Fehlerkatalog fuer die UI (Checkbox-Liste)."""
+    """Error catalog for the UI (checkbox list)."""
     return load_catalog()
 
 
 @app.post("/generate")
 def generate(req: GenerateRequest):
-    """Erzeugt einen Batch, schreibt ihn in output/ui-runs/<run_id>/ und
-    liefert Meldungen + Ground-Truth-Manifest."""
+    """Generates a batch, writes it to output/ui-runs/<run_id>/ and
+    returns messages + ground-truth manifest."""
     import json
     try:
         manifest = generate_batch(
@@ -80,12 +80,12 @@ def generate(req: GenerateRequest):
 
 @app.post("/runs/{run_id}/open")
 def open_run_folder(run_id: str):
-    """Oeffnet den Output-Ordner des Laufs im Finder/Explorer (lokale Demo)."""
+    """Opens the run output folder in Finder/Explorer (local demo)."""
     if not re.match(r"^[A-Za-z0-9]+$", run_id):
-        raise HTTPException(status_code=400, detail="ungueltige run_id")
+        raise HTTPException(status_code=400, detail="invalid run_id")
     path = os.path.join(RUNS_DIR, run_id)
     if not os.path.isdir(path):
-        raise HTTPException(status_code=404, detail="Lauf nicht gefunden")
+        raise HTTPException(status_code=404, detail="run not found")
     opener = "open" if sys.platform == "darwin" else "xdg-open"
     subprocess.Popen([opener, path])
     return {"opened": path}

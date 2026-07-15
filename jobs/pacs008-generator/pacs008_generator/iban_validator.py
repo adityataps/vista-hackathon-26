@@ -1,20 +1,20 @@
-"""Weltweiter IBAN-Validator (ISO 13616 / ISO 7064 Mod-97).
+"""Worldwide IBAN validator (ISO 13616 / ISO 7064 mod-97).
 
-Prueft eine IBAN in 5 Stufen und liefert strukturierte Fehlercodes, die zu
-error_catalog.yaml / agent_error_knowledge.yaml passen:
+Checks an IBAN in 5 stages and returns structured error codes matching
+error_catalog.yaml / agent_error_knowledge.yaml:
 
-  IBAN_COUNTRY_UNKNOWN     Laendercode nicht im IBAN-Register
-  IBAN_INVALID_FORMAT      unzulaessige Zeichen / Aufbau
-  IBAN_WRONG_LENGTH        Laenge passt nicht zur Soll-Laenge des Landes
-  IBAN_INVALID_CHECKDIGITS Pruefziffern 00/01/99 sind per Standard unzulaessig
-  IBAN_INVALID_CHECKSUM    Mod-97-Pruefung fehlgeschlagen
+  IBAN_COUNTRY_UNKNOWN     country code not in the IBAN registry
+  IBAN_INVALID_FORMAT      illegal characters / structure
+  IBAN_WRONG_LENGTH        length does not match the country target length
+  IBAN_INVALID_CHECKDIGITS check digits 00/01/99 are illegal per standard
+  IBAN_INVALID_CHECKSUM    mod-97 check failed
 
 CLI:  python3 -m pacs008_generator.iban_validator CH9300762011623852957 DE44...
 """
 import re
 import sys
 
-# ISO 13616 IBAN-Register: Laendercode -> IBAN-Gesamtlaenge (Stand 2026)
+# ISO 13616 IBAN registry: country code -> total IBAN length (as of 2026)
 IBAN_LENGTHS = {
     "AD": 24, "AE": 23, "AL": 28, "AT": 20, "AZ": 28, "BA": 20, "BE": 16,
     "BG": 22, "BH": 22, "BI": 27, "BR": 29, "BY": 28, "CH": 21, "CR": 22,
@@ -43,9 +43,9 @@ def _mod97(iban):
 
 
 def validate_iban(iban):
-    """Validiert eine IBAN. Rueckgabe:
+    """Validates an IBAN. Returns:
     {"iban", "normalized", "country", "valid", "errors": [{code, detail}]}
-    Leerzeichen werden toleriert (Papierformat), Kleinbuchstaben normalisiert."""
+    Whitespace is tolerated (paper format), lowercase is normalised."""
     raw = iban or ""
     norm = re.sub(r"[\s\-]", "", str(raw)).upper()
     res = {"iban": raw, "normalized": norm, "country": norm[:2] or None,
@@ -58,7 +58,7 @@ def validate_iban(iban):
         err("IBAN_INVALID_FORMAT",
             "structure must be: 2-letter country code + 2 check digits "
             "+ up to 30 alphanumeric characters (found: '%s')" % norm[:40])
-        return res  # weitere Pruefungen sinnlos
+        return res  # further checks pointless
 
     ctry = norm[:2]
     expected = IBAN_LENGTHS.get(ctry)

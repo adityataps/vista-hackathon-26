@@ -9,21 +9,21 @@ from .errors import load_catalog
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="pacs008_generator",
-        description="Generiert CBPR+ pacs.008 Meldungen (XSD-valide) mit "
-                    "konfigurierbaren Business-Fehlern.")
-    ap.add_argument("--count", type=int, default=10, help="Anzahl Meldungen")
+        description="Generates CBPR+ pacs.008 messages (XSD-valid) with "
+                    "configurable business errors.")
+    ap.add_argument("--count", type=int, default=10, help="number of messages")
     ap.add_argument("--error-rate", type=float, default=0.3,
-                    help="Anteil fehlerhafter Meldungen (0..1)")
+                    help="share of faulty messages (0..1)")
     ap.add_argument("--faulty", type=int, default=None,
-                    help="Absolute Anzahl fehlerhafter Meldungen "
-                         "(ueberschreibt --error-rate)")
+                    help="absolute number of faulty messages "
+                         "(overrides --error-rate)")
     ap.add_argument("--seed", type=int, default=None,
-                    help="Seed fuer reproduzierbare Laeufe")
+                    help="seed for reproducible runs")
     ap.add_argument("--errors", nargs="*", default=None, metavar="CODE",
-                    help="Nur diese Fehlercodes verwenden (siehe --list-errors)")
-    ap.add_argument("--out", default="output", help="Output-Verzeichnis")
+                    help="use only these error codes (see --list-errors)")
+    ap.add_argument("--out", default="output", help="output directory")
     ap.add_argument("--list-errors", action="store_true",
-                    help="Fehlerkatalog anzeigen und beenden")
+                    help="print the error catalog and exit")
     args = ap.parse_args(argv)
 
     if args.list_errors:
@@ -36,12 +36,12 @@ def main(argv=None):
                        faulty=args.faulty, seed=args.seed,
                        error_codes=args.errors, out_dir=args.out)
     faulty = [x for x in m["messages"] if x["is_faulty"]]
-    print("Generiert: %d Meldungen (%d fehlerhaft) -> %s/"
+    print("Generated: %d messages (%d faulty) -> %s/"
           % (len(m["messages"]), len(faulty), args.out))
     for x in faulty:
         e = x["errors"][0]
         print("  %-24s %s: %s" % (x["file"], e["code"], e["detail"]))
-    print("Ground Truth: %s/manifest.json" % args.out)
+    print("Ground truth: %s/manifest.json" % args.out)
     return 0
 
 

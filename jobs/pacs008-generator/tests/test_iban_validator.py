@@ -34,7 +34,7 @@ def test_invalid_checksum():
 
 
 def test_wrong_length():
-    r = validate_iban("DE8937040044053201300")  # 21 statt 22
+    r = validate_iban("DE8937040044053201300")  # 21 instead of 22
     assert any(e["code"] == "IBAN_WRONG_LENGTH" for e in r["errors"])
 
 
@@ -54,7 +54,7 @@ def test_invalid_check_digits_rule():
 
 
 def test_generator_errors_are_detected():
-    """Die vom Generator injizierten IBAN-Fehler muessen erkannt werden."""
+    """IBAN errors injected by the generator must be detected."""
     from pacs008_generator.generator import generate_batch
     for code in ("IBAN_INVALID_CHECKSUM", "IBAN_WRONG_LENGTH"):
         m = generate_batch(count=6, error_rate=1.0, error_codes=[code],

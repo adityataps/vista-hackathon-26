@@ -1,13 +1,13 @@
-"""AWS Lambda handler fuer den pacs.008 CBPR+ Generator.
+"""AWS Lambda handler for the pacs.008 CBPR+ generator.
 
-Unterstuetzt drei Aufrufarten:
-  1. Direkte Invocation:      event = {"count": 20, "error_rate": 0.3, ...}
-  2. Function URL / API GW:   event["body"] = JSON-String mit denselben Feldern
-  3. Optionaler S3-Upload:    "s3_bucket": "...", "s3_prefix": "runs/" im Event
-                              (oder Env-Vars OUTPUT_BUCKET / OUTPUT_PREFIX)
+Supports three invocation styles:
+  1. Direct invocation:       event = {"count": 20, "error_rate": 0.3, ...}
+  2. Function URL / API GW:   event["body"] = JSON string with the same fields
+  3. Optional S3 upload:      "s3_bucket": "...", "s3_prefix": "runs/" in the event
+                              (or env vars OUTPUT_BUCKET / OUTPUT_PREFIX)
 
-Antwort: Manifest (Ground Truth). XML inline nur wenn include_xml=true UND
-kein S3-Bucket angegeben ist (Lambda-Response-Limit 6 MB beachten).
+Response: manifest (ground truth). XML inline only if include_xml=true AND
+no S3 bucket is given (mind the 6 MB Lambda response limit).
 
 Handler in AWS:  lambda_handler.lambda_handler
 Runtime: Python 3.12 | Memory: 512 MB | Timeout: 60 s

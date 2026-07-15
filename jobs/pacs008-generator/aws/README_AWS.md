@@ -1,14 +1,14 @@
-# Deployment als AWS Lambda
+# Deployment as AWS Lambda
 
-## Paket bauen
+## Build the package
 
 ```bash
 cd pacs008-generator
 chmod +x aws/build_lambda.sh
-./aws/build_lambda.sh          # erzeugt aws/lambda.zip (~2-3 MB)
+./aws/build_lambda.sh          # produces aws/lambda.zip (~2-3 MB)
 ```
 
-## Lambda anlegen (Konsole oder CLI)
+## Create the Lambda (console or CLI)
 
 ```bash
 aws lambda create-function \
@@ -22,36 +22,36 @@ aws lambda create-function \
 
 Updates: `aws lambda update-function-code --function-name pacs008-generator --zip-file fileb://aws/lambda.zip`
 
-## Aufruf
+## Invocation
 
-Direkt (Test-Event oder CLI):
+Direct (test event or CLI):
 
 ```json
 {"count": 20, "error_rate": 0.3, "seed": 42, "error_codes": null}
 ```
 
-Mit S3-Ablage (empfohlen fuer grosse Batches — Lambda-Response-Limit ist 6 MB):
+With S3 output (recommended for large batches — Lambda response limit is 6 MB):
 
 ```json
-{"count": 100, "faulty": 30, "s3_bucket": "mein-bucket", "s3_prefix": "pacs008-runs/"}
+{"count": 100, "faulty": 30, "s3_bucket": "my-bucket", "s3_prefix": "pacs008-runs/"}
 ```
 
-→ XMLs + `manifest.json` landen unter `s3://mein-bucket/pacs008-runs/<run_id>/`,
-Response enthaelt `s3_location` + Manifest ohne XML.
-Alternativ Env-Vars `OUTPUT_BUCKET` / `OUTPUT_PREFIX` setzen.
+→ XMLs + `manifest.json` end up under `s3://my-bucket/pacs008-runs/<run_id>/`,
+the response contains `s3_location` + manifest without XML.
+Alternatively set the env vars `OUTPUT_BUCKET` / `OUTPUT_PREFIX`.
 
-Function URL / API Gateway: gleicher JSON-Body als POST — der Handler erkennt
-`event.body` automatisch. Damit kann das Demo-UI (ui/index.html) mit minimaler
-Anpassung (fetch-URL) gegen die Lambda laufen.
+Function URL / API Gateway: same JSON body as POST — the handler detects
+`event.body` automatically. The demo UI (ui/index.html) can run against the
+Lambda with a minimal change (fetch URL).
 
 ## IAM
 
-Basis: `AWSLambdaBasicExecutionRole` (Logs). Fuer S3 zusaetzlich `s3:PutObject`
-auf den Ziel-Bucket/Prefix.
+Base: `AWSLambdaBasicExecutionRole` (logs). For S3 additionally `s3:PutObject`
+on the target bucket/prefix.
 
-## Hinweise
+## Notes
 
-- Keine Netzwerkzugriffe zur Laufzeit ausser optional S3 — kein VPC noetig
-- Kaltstart ~1-2 s (xmlschema parst die XSDs beim ersten Aufruf, danach gecacht)
-- `schemas/` (MyStandards-Lizenz) bleibt im privaten Deployment-Paket — ok fuer internen Gebrauch
-- Lokaler Smoke-Test ohne AWS: `python3 aws/local_invoke.py`
+- No network access at runtime except optional S3 — no VPC required
+- Cold start ~1-2 s (xmlschema parses the XSDs on first call, cached afterwards)
+- `schemas/` (MyStandards licence) stays inside the private deployment package
+- Local smoke test without AWS: `python3 aws/local_invoke.py`

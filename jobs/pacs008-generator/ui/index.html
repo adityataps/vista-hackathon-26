@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>pacs.008 CBPR+ Generator — Vista Hackathon</title>
@@ -50,34 +50,34 @@
 </head>
 <body>
 <h1>pacs.008 CBPR+ Generator</h1>
-<div class="sub">Use Case A — SWIFT Exceptions &amp; Investigations · alle Meldungen XSD-valide (CBPR+ SR2025) · Fehler = Business-Fehler</div>
+<div class="sub">Use Case A — SWIFT Exceptions &amp; Investigations · all messages XSD-valid (CBPR+ SR2025) · errors = business errors</div>
 <div class="layout">
   <div class="card">
     <div class="row2">
-      <div><label>Anzahl Meldungen</label>
+      <div><label>Number of messages</label>
         <input type="number" id="count" value="20" min="1" max="500"></div>
-      <div><label>Fehlerquote %</label>
+      <div><label>Error rate %</label>
         <input type="number" id="rate" value="30" min="0" max="100"></div>
     </div>
     <div class="row2">
-      <div><label>Fehlerhaft absolut (optional)</label>
-        <input type="number" id="faulty" placeholder="überschreibt Quote"></div>
+      <div><label>Faulty absolute (optional)</label>
+        <input type="number" id="faulty" placeholder="overrides rate"></div>
       <div><label>Seed (optional)</label>
-        <input type="number" id="seed" placeholder="z.B. 42"></div>
+        <input type="number" id="seed" placeholder="e.g. 42"></div>
     </div>
-    <label>Fehlertypen (keine Auswahl = alle)</label>
-    <div class="errlist" id="errlist">lade Katalog…</div>
-    <button id="gen" onclick="generate()">Meldungen generieren</button>
-    <button class="sec" id="openbtn" onclick="openFolder()" style="display:none">Output-Ordner öffnen</button>
+    <label>Error types (none selected = all)</label>
+    <div class="errlist" id="errlist">loading catalog…</div>
+    <button id="gen" onclick="generate()">Generate messages</button>
+    <button class="sec" id="openbtn" onclick="openFolder()" style="display:none">Open output folder</button>
     <div class="pathline" id="outpath"></div>
   </div>
   <div class="card">
     <div class="chips" id="chips"></div>
     <table id="tbl" style="display:none">
-      <thead><tr><th>Datei</th><th>Status</th><th>Fehler</th><th>Detail</th></tr></thead>
+      <thead><tr><th>File</th><th>Status</th><th>Error</th><th>Detail</th></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
-    <div id="empty" style="color:var(--mut)">Noch kein Lauf — Parameter links setzen und generieren.</div>
+    <div id="empty" style="color:var(--mut)">No run yet — set parameters on the left and generate.</div>
     <div id="xmlpane"><b id="xmltitle"></b><pre id="xml"></pre></div>
   </div>
 </div>
@@ -93,7 +93,7 @@ async function loadCatalog() {
 
 async function generate() {
   const btn = document.getElementById('gen');
-  btn.disabled = true; btn.textContent = 'generiere…';
+  btn.disabled = true; btn.textContent = 'generating…';
   const codes = [...document.querySelectorAll('#errlist input:checked')].map(c => c.value);
   const body = {
     count: +document.getElementById('count').value,
@@ -110,18 +110,18 @@ async function generate() {
       headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     if (!r.ok) throw new Error((await r.json()).detail || r.status);
     render(await r.json());
-  } catch (e) { alert('Fehler: ' + e.message); }
-  btn.disabled = false; btn.textContent = 'Meldungen generieren';
+  } catch (e) { alert('Error: ' + e.message); }
+  btn.disabled = false; btn.textContent = 'Generate messages';
 }
 
 function render(m) {
   runId = m.run_id; messages = m.messages;
   const bad = messages.filter(x => x.is_faulty);
   document.getElementById('chips').innerHTML =
-    '<span class="chip">Lauf ' + m.run_id + '</span>' +
-    '<span class="chip">' + messages.length + ' Meldungen</span>' +
-    '<span class="chip ok">' + (messages.length - bad.length) + ' korrekt</span>' +
-    '<span class="chip bad">' + bad.length + ' fehlerhaft</span>';
+    '<span class="chip">Run ' + m.run_id + '</span>' +
+    '<span class="chip">' + messages.length + ' messages</span>' +
+    '<span class="chip ok">' + (messages.length - bad.length) + ' correct</span>' +
+    '<span class="chip bad">' + bad.length + ' faulty</span>';
   document.getElementById('tbody').innerHTML = messages.map(function (x, i) {
     const e = x.errors[0] || {};
     return '<tr class="row" onclick="showXml(' + i + ')">' +
@@ -141,7 +141,7 @@ function render(m) {
 function showXml(i) {
   const x = messages[i];
   document.getElementById('xmltitle').textContent = x.file;
-  document.getElementById('xml').textContent = x.xml || '(XML nicht geladen)';
+  document.getElementById('xml').textContent = x.xml || '(XML not loaded)';
   document.getElementById('xmlpane').style.display = 'block';
 }
 
