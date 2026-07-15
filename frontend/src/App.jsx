@@ -1,28 +1,37 @@
 import { useEffect, useState } from 'react';
 import OperationsDashboard from './views/OperationsDashboard.jsx';
 import ExceptionQueue from './views/ExceptionQueue.jsx';
-import BottleneckMonitor from './views/BottleneckMonitor.jsx';
-import { probeBackend, getExceptions, getAlerts } from './api/client.js';
+import { probeBackend, getExceptions, generateDemoPayments } from './api/client.js';
 
 const TABS = [
   { id: 'dashboard', label: 'Operations Dashboard' },
   { id: 'exceptions', label: 'Exception Queue' },
-  { id: 'monitor', label: 'Bottleneck Monitor' },
 ];
 
 export default function App() {
   const [tab, setTab] = useState('dashboard');
   const [backendLive, setBackendLive] = useState(null);
   const [openExceptions, setOpenExceptions] = useState(0);
-  const [alertCount, setAlertCount] = useState(0);
+  const [genState, setGenState] = useState('idle'); // idle | running | done
 
   useEffect(() => {
     probeBackend().then(setBackendLive);
     getExceptions().then(({ data }) =>
       setOpenExceptions(data.filter((e) => e.status === 'pending').length)
     );
-    getAlerts().then(({ data }) => setAlertCount(data.length));
   }, []);
+
+  async function generate() {
+    if (genState === 'running') return;
+    setGenState('running');
+    await generateDemoPayments();
+    // refresh queue badge — the generator writes new payments the agent picks up
+    getExceptions().then(({ data }) =>
+      setOpenExceptions(data.filter((e) => e.status === 'pending').length)
+    );
+    setGenState('done');
+    setTimeout(() => setGenState('idle'), 3000);
+  }
 
   return (
     <div className="app">
@@ -45,12 +54,19 @@ export default function App() {
               {t.id === 'exceptions' && openExceptions > 0 && (
                 <span className="badge">{openExceptions}</span>
               )}
-              {t.id === 'monitor' && alertCount > 0 && (
-                <span className="badge">{alertCount}</span>
-              )}
             </button>
           ))}
         </nav>
+        <button
+          className="btn primary"
+          style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}
+          onClick={generate}
+          disabled={genState === 'running'}
+        >
+          {genState === 'idle' && '⚡ Generate Payments'}
+          {genState === 'running' && <><span className="spinner" style={{ marginRight: 8 }} />Generating…</>}
+          {genState === 'done' && '✓ Payments generated'}
+        </button>
         <div className="conn" title="Backend connectivity">
           <span className={`dot ${backendLive ? 'live' : 'mock'}`} />
           {backendLive === null ? 'Connecting…' : backendLive ? 'Backend live' : 'Demo mode (mock data)'}
@@ -60,7 +76,6 @@ export default function App() {
       <main className="main">
         {tab === 'dashboard' && <OperationsDashboard />}
         {tab === 'exceptions' && <ExceptionQueue />}
-        {tab === 'monitor' && <BottleneckMonitor />}
       </main>
     </div>
   );

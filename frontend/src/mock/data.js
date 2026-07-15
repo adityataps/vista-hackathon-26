@@ -4,45 +4,82 @@
 // unreachable, so the full demo works standalone.
 // ---------------------------------------------------------------------------
 
+// KPI row.
+//
+// DATA CONTRACT (for backend engineer): GET /api/metrics/kpis
+//   in_flight       → total payments in the system (mock rails + generated CBPR+)
+//   exceptions_open → exceptions awaiting human approve/reject
+//   settlement_risk → open, unprocessed exceptions whose interbank settlement
+//                     date (IntrBkSttlmDt) is at risk vs. current processing time —
+//                     i.e. they will miss settlement if not approved/rejected in time
 export const kpis = {
   in_flight: 142,
   exceptions_open: 23,
-  at_risk: 4,
+  settlement_risk: 4,
   mttr_before: '38m',
   mttr_now: '2s',
 };
 
-// Transaction volume time series — hourly, by rail
+// Transaction volume time series — hourly, by rail.
+//
+// DATA CONTRACT (for backend engineer):
+//   sepa_sct + fedwire  → static mock rails, CONSTANT per hour (not simulated)
+//   swift_cbpr          → the ONLY dynamic series: fill from generated
+//                         SWIFT CBPR+ message load per hour
+//   exceptions          → exception count per hour (from simulation)
+// The chart stacks all three rails; only swift_cbpr varies with load.
 export const volumeSeries = [
-  { hour: '08:00', sepa_instant: 84, swift_gpi: 42, fedwire: 21, exceptions: 3 },
-  { hour: '09:00', sepa_instant: 132, swift_gpi: 67, fedwire: 35, exceptions: 5 },
-  { hour: '10:00', sepa_instant: 158, swift_gpi: 81, fedwire: 44, exceptions: 4 },
-  { hour: '11:00', sepa_instant: 171, swift_gpi: 96, fedwire: 52, exceptions: 7 },
-  { hour: '12:00', sepa_instant: 149, swift_gpi: 88, fedwire: 47, exceptions: 6 },
-  { hour: '13:00', sepa_instant: 137, swift_gpi: 79, fedwire: 41, exceptions: 4 },
-  { hour: '14:00', sepa_instant: 165, swift_gpi: 93, fedwire: 55, exceptions: 9 },
-  { hour: '15:00', sepa_instant: 182, swift_gpi: 104, fedwire: 61, exceptions: 8 },
-  { hour: '16:00', sepa_instant: 176, swift_gpi: 99, fedwire: 58, exceptions: 6 },
-  { hour: '17:00', sepa_instant: 143, swift_gpi: 76, fedwire: 39, exceptions: 5 },
+  { hour: '08:00', sepa_sct: 120, fedwire: 45, swift_cbpr: 42, exceptions: 3 },
+  { hour: '09:00', sepa_sct: 120, fedwire: 45, swift_cbpr: 67, exceptions: 5 },
+  { hour: '10:00', sepa_sct: 120, fedwire: 45, swift_cbpr: 81, exceptions: 4 },
+  { hour: '11:00', sepa_sct: 120, fedwire: 45, swift_cbpr: 96, exceptions: 7 },
+  { hour: '12:00', sepa_sct: 120, fedwire: 45, swift_cbpr: 88, exceptions: 6 },
+  { hour: '13:00', sepa_sct: 120, fedwire: 45, swift_cbpr: 79, exceptions: 4 },
+  { hour: '14:00', sepa_sct: 120, fedwire: 45, swift_cbpr: 93, exceptions: 9 },
+  { hour: '15:00', sepa_sct: 120, fedwire: 45, swift_cbpr: 104, exceptions: 8 },
+  { hour: '16:00', sepa_sct: 120, fedwire: 45, swift_cbpr: 99, exceptions: 6 },
+  { hour: '17:00', sepa_sct: 120, fedwire: 45, swift_cbpr: 76, exceptions: 5 },
 ];
 
-// Latency percentiles — current vs. 7-day benchmark (minutes), by corridor
-export const latencySeries = [
-  { corridor: 'EUR→USD', p50: 12, p95: 38, p99: 61, bench_p95: 35 },
-  { corridor: 'USD→SGD', p50: 41, p95: 188, p99: 342, bench_p95: 95 },
-  { corridor: 'GBP→EUR', p50: 8, p95: 22, p99: 37, bench_p95: 24 },
-  { corridor: 'USD→JPY', p50: 19, p95: 52, p99: 88, bench_p95: 55 },
-  { corridor: 'EUR→CHF', p50: 6, p95: 15, p99: 28, bench_p95: 16 },
-  { corridor: 'USD→BRL', p50: 33, p95: 91, p99: 140, bench_p95: 86 },
+// Cost savings per pre-check case — hourly, by rail (USD).
+//
+// DATA CONTRACT (for backend engineer):
+//   baseline    → manual investigation cost per case. CONSTANT:
+//                 industry range $15–$40 → midpoint $27.50 used as baseline
+//   swift_cbpr  → the ONLY dynamic series: baseline − actual LLM token cost
+//                 of the agent investigation, per resolved case in that hour
+//   sepa_sct + fedwire → static mock rails, CONSTANT per hour (not simulated)
+// Savings per case = baseline − token cost, so values sit just below baseline.
+export const MANUAL_COST_RANGE = { min: 15, max: 40, baseline: 27.5 };
+
+export const savingsSeries = [
+  { hour: '08:00', swift_cbpr: 27.21, sepa_sct: 27.1, fedwire: 26.9, baseline: 27.5 },
+  { hour: '09:00', swift_cbpr: 27.08, sepa_sct: 27.1, fedwire: 26.9, baseline: 27.5 },
+  { hour: '10:00', swift_cbpr: 27.17, sepa_sct: 27.1, fedwire: 26.9, baseline: 27.5 },
+  { hour: '11:00', swift_cbpr: 26.84, sepa_sct: 27.1, fedwire: 26.9, baseline: 27.5 },
+  { hour: '12:00', swift_cbpr: 27.02, sepa_sct: 27.1, fedwire: 26.9, baseline: 27.5 },
+  { hour: '13:00', swift_cbpr: 27.19, sepa_sct: 27.1, fedwire: 26.9, baseline: 27.5 },
+  { hour: '14:00', swift_cbpr: 26.62, sepa_sct: 27.1, fedwire: 26.9, baseline: 27.5 },
+  { hour: '15:00', swift_cbpr: 26.91, sepa_sct: 27.1, fedwire: 26.9, baseline: 27.5 },
+  { hour: '16:00', swift_cbpr: 27.11, sepa_sct: 27.1, fedwire: 26.9, baseline: 27.5 },
+  { hour: '17:00', swift_cbpr: 27.24, sepa_sct: 27.1, fedwire: 26.9, baseline: 27.5 },
 ];
 
-// Exception breakdown — by type
+// Exception breakdown — by type (8 CBPR+ exception criteria).
+//
+// DATA CONTRACT (for backend engineer):
+//   approved → agent proposed a fix AND the human operator approved it (HITL)
+//   rejected → the human operator rejected the agent's recommendation (HITL)
+//   count    → total investigated for this type (approved + rejected + pending)
 export const exceptionBreakdown = [
-  { type: 'Bad IBAN', count: 9, auto_resolved: 7, escalated: 2, avg_resolution_min: 0.2 },
-  { type: 'Duplicate', count: 5, auto_resolved: 4, escalated: 1, avg_resolution_min: 0.3 },
-  { type: 'Sanctions', count: 3, auto_resolved: 0, escalated: 3, avg_resolution_min: 4.1 },
-  { type: 'ISO 20022 field', count: 4, auto_resolved: 3, escalated: 1, avg_resolution_min: 0.4 },
-  { type: 'FX limit', count: 2, auto_resolved: 0, escalated: 2, avg_resolution_min: 2.8 },
+  { type: 'Bad IBAN (checksum)', count: 9, approved: 7, rejected: 2, avg_resolution_min: 0.2 },
+  { type: 'Invalid BIC', count: 4, approved: 3, rejected: 1, avg_resolution_min: 0.3 },
+  { type: 'Duplicate UETR', count: 5, approved: 4, rejected: 1, avg_resolution_min: 0.3 },
+  { type: 'Sanctions name hit', count: 3, approved: 1, rejected: 2, avg_resolution_min: 4.1 },
+  { type: 'Missing mandatory field', count: 4, approved: 3, rejected: 1, avg_resolution_min: 0.4 },
+  { type: 'Invalid currency/amount', count: 3, approved: 2, rejected: 1, avg_resolution_min: 0.5 },
+  { type: 'FX limit breach', count: 2, approved: 1, rejected: 1, avg_resolution_min: 2.8 },
+  { type: 'Cut-off / value date', count: 2, approved: 2, rejected: 0, avg_resolution_min: 1.1 },
 ];
 
 // Correspondent health table
@@ -53,6 +90,39 @@ export const correspondents = [
   { bic: 'HSBCGB2L', bank: 'HSBC', country: 'GB', status: 'normal', avg_processing_min: 35, delayed: 1 },
   { bic: 'DBSSSGSG', bank: 'DBS Bank', country: 'SG', status: 'normal', avg_processing_min: 52, delayed: 0 },
   { bic: 'UBSWCHZH', bank: 'UBS', country: 'CH', status: 'normal', avg_processing_min: 19, delayed: 0 },
+];
+
+// Avg LLM token cost per exception type (USD per agent investigation).
+//
+// DATA CONTRACT (for backend engineer): GET /api/metrics/token-costs
+//   avg_token_cost_usd → average LLM token spend per investigation of this type
+export const tokenCostPerType = [
+  { type: 'Bad IBAN (checksum)', avg_token_cost_usd: 0.09 },
+  { type: 'Invalid BIC', avg_token_cost_usd: 0.07 },
+  { type: 'Duplicate UETR', avg_token_cost_usd: 0.11 },
+  { type: 'Sanctions name hit', avg_token_cost_usd: 0.88 },
+  { type: 'Missing mandatory field', avg_token_cost_usd: 0.14 },
+  { type: 'Invalid currency/amount', avg_token_cost_usd: 0.12 },
+  { type: 'FX limit breach', avg_token_cost_usd: 0.31 },
+  { type: 'Cut-off / value date', avg_token_cost_usd: 0.18 },
+];
+
+// Exceptions detected vs. resolved per hour.
+//
+// DATA CONTRACT (for backend engineer): GET /api/metrics/throughput
+//   detected → exceptions raised in that hour (from generated CBPR+ load)
+//   resolved → cases closed in that hour (agent fix + human approve/reject)
+export const hourlyThroughput = [
+  { hour: '08:00', detected: 3, resolved: 2 },
+  { hour: '09:00', detected: 5, resolved: 5 },
+  { hour: '10:00', detected: 4, resolved: 4 },
+  { hour: '11:00', detected: 7, resolved: 6 },
+  { hour: '12:00', detected: 6, resolved: 7 },
+  { hour: '13:00', detected: 4, resolved: 4 },
+  { hour: '14:00', detected: 9, resolved: 8 },
+  { hour: '15:00', detected: 8, resolved: 8 },
+  { hour: '16:00', detected: 6, resolved: 7 },
+  { hour: '17:00', detected: 5, resolved: 5 },
 ];
 
 // AI performance stats
@@ -69,9 +139,9 @@ export const aiStats = {
 // ---------------------------------------------------------------------------
 
 export const exceptionQueue = [
-  { tx_id: 'TX-00142', type: 'Bad IBAN', type_key: 'iban', amount: '€42,000', sender: 'Müller Maschinenbau GmbH', receiver: 'Hartley Components Ltd', status: 'pending' },
+  { tx_id: 'TX-00142', type: 'Bad IBAN', type_key: 'iban', amount: '€42,000', sender: 'Norfolk Precision Engineering Ltd', receiver: 'Hartley Components Ltd', status: 'pending' },
   { tx_id: 'TX-00138', type: 'Sanctions hit', type_key: 'sanctions', amount: '$198,500', sender: 'Global Trade Partners LLC', receiver: 'Novaya Star Shipping', status: 'pending' },
-  { tx_id: 'TX-00136', type: 'ISO 20022 field', type_key: 'iso', amount: '¥8,400,000', sender: 'Sakura Trading KK', receiver: 'Pacific Imports Inc', status: 'pending' },
+  { tx_id: 'TX-00136', type: 'ISO 20022 field', type_key: 'iso', amount: '¥8,400,000', sender: 'Pacific Rim Trading Co', receiver: 'Pacific Imports Inc', status: 'pending' },
   { tx_id: 'TX-00131', type: 'FX limit breach', type_key: 'fx', amount: '$2,450,000', sender: 'Meridian Capital', receiver: 'Andes Mining SA', status: 'pending' },
   { tx_id: 'TX-00121', type: 'Duplicate ref', type_key: 'duplicate', amount: '£7,200', sender: 'Thames Logistics', receiver: 'Clyde Freight Ltd', status: 'resolved' },
 ];
@@ -85,7 +155,7 @@ export const investigationScripts = {
     steps: [
       { agent: 'Intake Agent', cls: 'intake', text: 'Classified exception as IBAN_CHECKSUM_ERROR (severity: low, auto-correctable candidate)' },
       { agent: 'tool', cls: 'tool', text: '↳ get_payment_record("TX-00142")' },
-      { agent: 'Investigation Agent', cls: 'investigation', text: 'Pulled payment record TX-00142 — €42,000 EUR→GBP via SWIFT gpi, sender Müller Maschinenbau GmbH' },
+      { agent: 'Investigation Agent', cls: 'investigation', text: 'Pulled payment record TX-00142 — €42,000 EUR→GBP via SWIFT gpi, sender Norfolk Precision Engineering Ltd' },
       { agent: 'tool', cls: 'tool', text: '↳ validate_iban("GB29NWBK60161331926819")' },
       { agent: 'Technical Diagnosis', cls: 'technical', text: 'IBAN GB29NWBK60161331926819 fails ISO 7064 mod-97-10 check. Check digits (19) inconsistent with BBAN.' },
       { agent: 'tool', cls: 'tool', text: '↳ lookup_bic("NWBKGB2L") → NatWest Bank, GB, status: active' },

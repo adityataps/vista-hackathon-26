@@ -87,7 +87,7 @@ export default function ExceptionQueue() {
         </div>
         <table>
           <thead>
-            <tr><th>TX ID</th><th>Type</th><th>Amount</th><th>Sender → Receiver</th><th>Status</th><th>Action</th></tr>
+            <tr><th>TX ID</th><th>Type</th><th>Amount</th><th>Sender → Receiver</th><th>Status</th></tr>
           </thead>
           <tbody>
             {queue.map((row) => (
@@ -104,14 +104,6 @@ export default function ExceptionQueue() {
                   <span className={`pill ${row.status === 'resolved' ? 'green' : 'yellow'}`}>
                     {row.status === 'resolved' ? 'Resolved' : 'Pending'}
                   </span>
-                </td>
-                <td>
-                  <button
-                    className="btn sm primary"
-                    onClick={(e) => { e.stopPropagation(); investigate(row); }}
-                  >
-                    {row.status === 'resolved' ? 'View' : '▶ Investigate'}
-                  </button>
                 </td>
               </tr>
             ))}

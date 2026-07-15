@@ -8,7 +8,7 @@
 // Planned backend endpoints (FastAPI):
 //   GET  /api/metrics/kpis
 //   GET  /api/metrics/volume
-//   GET  /api/metrics/latency
+//   GET  /api/metrics/savings
 //   GET  /api/metrics/exceptions
 //   GET  /api/metrics/correspondents
 //   GET  /api/metrics/ai
@@ -50,9 +50,11 @@ async function getJson(path, fallback) {
 // ---------- Dashboard ----------
 export const getKpis = () => getJson('/api/metrics/kpis', mock.kpis);
 export const getVolume = () => getJson('/api/metrics/volume', mock.volumeSeries);
-export const getLatency = () => getJson('/api/metrics/latency', mock.latencySeries);
+export const getSavings = () => getJson('/api/metrics/savings', mock.savingsSeries);
 export const getExceptionBreakdown = () => getJson('/api/metrics/exceptions', mock.exceptionBreakdown);
 export const getCorrespondents = () => getJson('/api/metrics/correspondents', mock.correspondents);
+export const getTokenCosts = () => getJson('/api/metrics/token-costs', mock.tokenCostPerType);
+export const getThroughput = () => getJson('/api/metrics/throughput', mock.hourlyThroughput);
 export const getAiStats = () => getJson('/api/metrics/ai', mock.aiStats);
 
 // ---------- Exceptions ----------
@@ -140,6 +142,23 @@ export async function sendChat(reportId, txId, message) {
     const hit = bank.find((c) => c.match.test(message)) ?? mock.chatAnswers.default[0];
     await new Promise((r) => setTimeout(r, 700));
     return { answer: hit.answer, tool: hit.tool, source: 'mock' };
+  }
+}
+
+// ---------- Demo payment generator ----------
+/**
+ * Triggers the demo payment generator.
+ * Backend contract: POST /api/demo/generate → { generated: <count> }
+ * (generator creates CBPR+ payments, writes them to the DB, agent picks them up)
+ */
+export async function generateDemoPayments() {
+  try {
+    const res = await apiFetch('/api/demo/generate', { method: 'POST', timeout: 30000 });
+    const data = await res.json();
+    return { generated: data.generated ?? 0, source: 'api' };
+  } catch {
+    await new Promise((r) => setTimeout(r, 1800)); // simulate generator run
+    return { generated: 25, source: 'mock' };
   }
 }
 
