@@ -46,3 +46,31 @@ def test_validate_iban_tool_valid():
     result = json.loads(validate_iban_tool.invoke({"iban": "GB29NWBK60161331926819"}))
     assert result["valid"] is True
     assert result["errors"] == []
+
+
+from agents.tools.compliance_tools import screen_entity_tool, check_address_completeness_tool
+
+
+def test_screen_entity_sanctions_hit():
+    result = json.loads(screen_entity_tool.invoke({"name": "Novaya Star Shipping"}))
+    assert result["match"] is True
+    assert result["score"] >= 0.70
+    assert "NOVAYA ZVEZDA" in result["entry"]["name"]
+
+
+def test_screen_entity_no_hit():
+    result = json.loads(screen_entity_tool.invoke({"name": "Thames Logistics Ltd"}))
+    assert result["match"] is False
+
+
+def test_check_address_complete():
+    addr = json.dumps({"Ctry": "GB", "TwnNm": "London", "StrtNm": "Baker St"})
+    result = json.loads(check_address_completeness_tool.invoke({"address_json": addr}))
+    assert result["fatf_compliant"] is True
+
+
+def test_check_address_incomplete():
+    addr = json.dumps({"Ctry": "GB"})
+    result = json.loads(check_address_completeness_tool.invoke({"address_json": addr}))
+    assert result["fatf_compliant"] is False
+    assert "TwnNm" in result["missing_recommended_fields"]
