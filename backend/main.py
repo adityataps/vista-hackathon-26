@@ -1,57 +1,20 @@
 import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
 import boto3
-import psycopg2
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from db import get_db, _ensure_schema
 from pacs008_generator.generator import generate_batch
 
 logger = logging.getLogger(__name__)
 
-S3_BUCKET    = os.environ.get("S3_BUCKET", "")
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
-
-_db_conn = None
-
-
-def _get_db():
-    global _db_conn
-    if not DATABASE_URL:
-        return None
-    try:
-        if _db_conn is None or _db_conn.closed:
-            _db_conn = psycopg2.connect(DATABASE_URL)
-            _ensure_events_schema(_db_conn)
-    except Exception as exc:
-        logger.warning("DB connect failed: %s", exc)
-        return None
-    return _db_conn
-
-
-def _ensure_events_schema(conn):
-    with conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS payment_events (
-                id            SERIAL PRIMARY KEY,
-                event_id      TEXT UNIQUE NOT NULL,
-                uetr          TEXT NOT NULL,
-                msg_id        TEXT,
-                event_type    TEXT NOT NULL,
-                status_code   TEXT,
-                source_system TEXT,
-                actor         TEXT,
-                detail        TEXT,
-                occurred_at   TIMESTAMPTZ NOT NULL
-            )
-        """)
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_events_uetr ON payment_events(uetr)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_payment_events_msg_id ON payment_events(msg_id)")
-    conn.commit()
+S3_BUCKET = os.environ.get("S3_BUCKET", "")
 
 
 def _write_events(conn, messages):
@@ -79,7 +42,14 @@ def _write_events(conn, messages):
             """, row)
     conn.commit()
 
-app = FastAPI(title="PayInvestigator")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    get_db()  # opens connection + runs _ensure_schema if DATABASE_URL is set
+    yield
+
+
+app = FastAPI(title="PayInvestigator", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -147,7 +117,7 @@ def seed(req: SeedRequest):
             "events": msg.get("events", []),
         })
 
-    conn = _get_db()
+    conn = get_db()
     events_written = 0
     if conn:
         try:
